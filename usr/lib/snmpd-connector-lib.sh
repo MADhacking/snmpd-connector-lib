@@ -105,14 +105,14 @@ function send_integer
 # Helper function to send an integer - called: send_boolean OID value
 #
 #	$1 - The OID to send before the data
-#	$2 - The VALUE to send
+#	$2 - The VALUE to send (T for true, F for false)
 #
 function send_boolean
 {
 	[[ -n ${DEBUG} ]] && logger -p local1.info "Sent ${1} TruthValue ${2}"
 	echo ${1}
 	echo "integer"
-	echo ${2}
+	[[ ${2} == "T" ]] && echo 1 || echo 2
 }
 
 # Helper function to send a string - called: send_string OID value
