@@ -9,6 +9,15 @@ function die
 	exit
 }
 
+function echo_array
+{
+	RA=($@)
+	for i in `seq 0 $(( ${#RA[@]} - 1 ))`; do
+    	echo -n "RA[$i]=\"${RA[i]}\" "
+	done
+	echo
+}
+
 # Functions to handle request types
 function handle_ping
 {
@@ -51,23 +60,26 @@ function handle_set
 #
 function get_request_oid
 {
+	local TOID
+	
 	# Read the OID this request is for
-	read OID
+	read TOID
+	eval $1=${TOID} 
 }
 
 # Function to split the requested OID into component parts
 #
 #	@param	$1 - The BASE_OID which this should be a request for
 #	@param	$2 - The OID to split
-#	@return	$3 - The R[equest]TYPE
-#	@return $4 - The R[equest]INDEX  
+#	@return	$3 - An array containing the request elements 
 #
 function split_request_oid
 {	
-	local ROID RFA 
+	local ROID RFA BWD 
 	
-	# Split off our BASE_OID to get a R[elative]OID. 
-	ROID=${2#$1}
+	# Split off our BASE_OID to get a R[elative]OID.
+	BWD="${1}." 
+	ROID=${2#${BWD}}
 
 	# If the requested OID doesn't start with our base OID then we're done already.
 	if [[ ${ROID} == ${2} ]]; then
@@ -81,12 +93,27 @@ function split_request_oid
 	RFA=(${ROID})
 	unset IFS
 
-	(( ${#RFA[@]} == 1 )) && logger -p local1.info "split ROID: ${ROID} (and RTYPE: ${RFA[0]}) from OID: ${2}"
-	(( ${#RFA[@]} > 1  )) && logger -p local1.info "split ROID: ${ROID} (and RTYPE: ${RFA[0]} RINDEX: ${RFA[1]}) from OID: ${2}"
+	(( ${#RFA[@]} > 0  )) && eval "$3=(${RFA[@]})" 
+}
 
-	# Prepare R[equest]TYPE and R[equest]INDEX variables for easier use.
-	eval $3=${RFA[0]}
-	(( ${#RFA[@]} > 1  )) && eval $4=${RFA[1]} || eval $4=-1
+# Function to get and split the request OID
+#
+#	@param	$1 - The BASE_OID to split off first
+#	@return $2 - The complete OID
+#	@return $3 - An array containing the request elements
+#
+function get_and_split_request_oid
+{
+	local TOID RAY
+	
+	# Read the OID this request is for
+	read TOID
+	
+	if [[ -n "${TOID}" ]]; then
+		eval "$2=\"${TOID}\""
+		split_request_oid $1 ${TOID} RAY
+		(( ${#RAY[@]} > 0  )) && eval "$3=(${RAY[@]})"
+	fi 
 }
 
 # Helper function to send an integer - called: send_integer OID value
@@ -141,19 +168,24 @@ function send_gauge
 	echo ${2}
 }
 
+# Function to handle GETNEXT requests
+#
+#	$1 - The BASE_OID to handle requests for
+#	$2 - The OID this request is for
+#
 function handle_getnext
 {
 	[[ -n ${DEBUG} ]] && logger -p local1.info "GETNEXT request for OID: ${OID}"
 	
-	local RTYPE RINDEX
+	local RTYPE RINDEX OID
 	
 	# Split the requested OID to get the R[equest]TYPE and R[equest]INDEX
-	split_request_oid ${BASE_OID} ${OID} RTYPE RINDEX
+	split_request_oid ${1} ${2} RTYPE RINDEX
 		
 	# If the ROID starts with...
 	case ${RTYPE} in
 		0) # It is a base query so send the OID of the first index value
-		OID=${BASE_OID}1.1
+		OID=${1}1.1
 		[[ -n ${DEBUG} ]] && logger -p local1.info "GETNEXT request passed to handle_get with new OID: ${OID}"
 		handle_get
 		;;
@@ -162,14 +194,14 @@ function handle_getnext
 		# If the next index is in range send the next OID...
 		NINDEX=$((${RINDEX} + 1))
 		if (( ${NINDEX} <= ${#DEVICES[@]} )); then
-			OID=${BASE_OID}${RTYPE}.${NINDEX}
+			OID=${1}${RTYPE}.${NINDEX}
 			[[ -n ${DEBUG} ]] && logger -p local1.info "GETNEXT request passed to handle_get with new OID: ${OID}"
 			handle_get
 		else
 			# ...otherwise send the next range if it is within this MIB or NONE
 			NTYPE=$((${RTYPE} + 1))
 		if (( ${NTYPE} <= ${#FTABLE[@]} )); then
-				OID=${BASE_OID}${NTYPE}.1
+				OID=${1}${NTYPE}.1
 				[[ -n ${DEBUG} ]] && logger -p local1.info "GETNEXT request passed to handle_get with new OID: ${OID}"
 				handle_get
 			else
@@ -180,39 +212,96 @@ function handle_getnext
 	esac
 }
 
+# Function to handle GET requests
+#
+#	@param	$1 - The OID to send along with this request
+#	@param	$2 - The base OID this is a request for
+#	@param	$+ - An array containing the request elements
+#
 function handle_get
 {
-	[[ -n ${DEBUG} ]] && logger -p local1.info "GET request for OID: ${OID}"
+	echo "handle_get : ${@}"
 	
-	local RTYPE RINDEX
-	
-	# Split the requested OID to get the R[equest]TYPE and R[equest]INDEX
-	split_request_oid ${BASE_OID} ${OID} RTYPE RINDEX
-	
-	# Get the command from the function table
-	COMMAND="${FTABLE[RTYPE]}"
-	
-	# If there is a function table entry...
-	if [[ ! -z 	${COMMAND} ]]; then
-		local RCOMMAND
-		
-		# Do string replacement
-		do_string_replace "${COMMAND}" ${RTYPE} ${RINDEX} RCOMMAND
-		RCOMMAND=${RCOMMAND/"%o"/${OID}}
-				
-		# Call it
-		eval "${RCOMMAND}"
-	else
-		# Send an error.
-		handle_unknown_oid ${OID}
-	fi
+	local BOID SOID RA COMMAND
+
+	BOID=${1}
+	shift
+	SOID=${1}
+	shift
+	RA=(${@})
+
+	# Get the command from the root table
+	COMMAND="${RTABLE[${RA[0]}]} ${SOID} ${BOID}.${RA[0]} ${RA[@]:1}"
+
+	echo "COMMAND = \"${COMMAND}\""
+	eval "${COMMAND}"
 }
+
+# Function to handle a table get request
+#
+#	@param	$1 - The name of the entry table
+#	@param	$2 - The OID to send along with this request
+#	@param	$3 - The base OID this is a request for
+#	@param	$+ - An array containing the remaining request elements
+#
+function handle_table_get
+{
+	echo "handle_table_get : ${@}"
+	
+	local BOID SOID TABLE RA COMMAND
+	
+	TABLE=${1}
+	shift
+	BOID=${1}
+	shift
+	SOID=${1}
+	shift
+	RA=(${@})
+	
+	# Get the command from the specified entry table
+	COMMAND="\${${TABLE}[${RA[0]}]} ${SOID} ${BOID}.${RA[0]} ${RA[@]:1}"
+	eval "echo COMMAND=${COMMAND}"
+	eval "${COMMAND}"
+}
+
+# Function to handle a table entry get request
+#
+#	@param	$1 - The name of the function table
+#	@param	$2 - The OID to send along with this request
+#	@param	$3 - The base OID this is a request for
+#	@param	$+ - An array containing the remaining request elements
+#
+function handle_table_entry_get
+{
+	echo "handle_table_entry_get : ${@}"
+
+	local BOID SOID TABLE RA COMMAND
+	
+	TABLE=${1}
+	shift
+	BOID=${1}
+	shift
+	SOID=${1}
+	shift
+	RA=(${@})
+	
+	# Get the command from the specified entry table
+	COMMAND="\"\${${TABLE}[${RA[0]}]} ${SOID} ${BOID}.${RA[0]} ${RA[@]:1}\""
+	eval "echo COMMAND=${COMMAND}"
+	
+	eval "${COMMAND}"
+}
+
 
 # Main functional loop
 function the_loop
 {
 	# Declare local variables
-	local QUIT QUERY
+	local QUIT QUERY BASE_OID OID RARRAY
+
+	# Try to resolve the numeric base oid from the base mib.
+	BASE_OID="$(${SNMP_TRANSLATE} -On ${BASE_MIB})"
+	(( $? != 0 )) && die "Unable to resolve base OID from ${BASE_MIB}"
 	
 	# Loop until we are instructed to quit
 	QUIT=0
@@ -234,13 +323,13 @@ function the_loop
 			;;
 			
 			"get")				# Handle GET requests
-			get_request_oid
-			handle_get
+			get_and_split_request_oid $BASE_OID OID RARRAY
+			handle_get $BASE_OID ${OID} ${RARRAY[@]}
 			;;
 	
 			"getnext")			# Handle GETNEXT requests
-			get_request_oid
-			handle_getnext
+			get_and_split_request_oid $BASE_OID OID RARRAY
+			handle_getnext $BASE_OID ${OID} ${RARRAY[@]}
 			;;
 	
 			"set")				# Handle SET requests
