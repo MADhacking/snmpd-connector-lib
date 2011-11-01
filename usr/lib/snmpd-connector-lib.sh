@@ -245,7 +245,7 @@ function handle_getnext
 	TABLE="${1}";	shift
 	SOID="${1}";	shift
 	BOID="${1}";	shift
-	RA=(${@})
+	RA="${@}"
 	
 	# If we were not passed the name of a table in $1 then we're done so log an
 	# error, send NONE and return.
@@ -257,7 +257,7 @@ function handle_getnext
 	fi  
 
 	# Get the next OID.
-	NEXTOID=$(get_next_oid ${TABLE} ${BOID} ${RA[@]})
+	NEXTOID=$(get_next_oid ${TABLE} ${BOID} ${RA})
 
 	# If we didn't get a next OID then log a warning and send NONE instead.
 	if [[ -z "${NEXTOID}" ]]; then
@@ -266,7 +266,7 @@ function handle_getnext
 	fi
 			
 	# Handle the original request but send the next OID.
-	handle_get "${TABLE}" ${NEXTOID} ${BOID} ${RA[@]}
+	handle_get ${TABLE} ${NEXTOID} ${BOID} ${RA}
 	debug_function_return
 }
 
