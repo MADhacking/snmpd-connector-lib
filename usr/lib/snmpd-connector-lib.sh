@@ -440,7 +440,7 @@ function handle_get
 	else
 		# We have a command.  Get it from the table, add the SOID, new BOID and
 		# remaining R[equest]A[array] and eval it.
-		COMMAND="${!TABLE} ${SOID} ${BOID}.${RA[0]} ${RA[@]:1}"
+		COMMAND="${!TABLE} ${SOID} ${RA[@]:1}"
 		debug_echo "found command in table: \"${COMMAND}\""
 		eval "${COMMAND}"
 	fi
