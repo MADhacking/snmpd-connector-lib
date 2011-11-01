@@ -1,3 +1,5 @@
+DEBUG_INDENT=0
+
 # Function to quit with error
 # 
 #	@in_param	$1 - The error message to die with
@@ -16,7 +18,27 @@ function error_echo
 
 function debug_echo
 {
-	[[ -n "${DEBUG}" ]] && echo "debug: ${@}" >&2
+	[[ -z "${DEBUG}" ]] && return
+	
+	v=$(printf "%-${DEBUG_INDENT}s" " ")
+	echo "debug: ${v}${@}" >&2
+}
+
+function debug_function_enter
+{
+	[[ -z "${DEBUG}" ]] && return
+	
+	debug_echo "function ${@}"
+	debug_echo "{"
+	DEBUG_INDENT=$(( $DEBUG_INDENT + 4 ))
+}
+
+function debug_function_return
+{
+	[[ -z "${DEBUG}" ]] && return 
+
+	(( $DEBUG_INDENT >= 4 )) && DEBUG_INDENT=$(( $DEBUG_INDENT - 4 ))
+	debug_echo "} ${@}"
 }
 
 function echo_array
@@ -207,55 +229,147 @@ function send_gauge
 
 # Function to handle GETNEXT requests
 #
-#	@in_param	$1 - The OID this is a request for
-#	@in_param	$2 - The base OID this is a request for
+#	@in_param	$1 - The name of an array, prefixed with a #, from which to retrieve
+#					 either the command to execute or the name of another array.
+#	@in_param	$2 - The OID to send along with this request
+#	@in_param	$3 - The base OID this is a request for
 #	@in_param	$+ - An array containing the request elements
 #
 function handle_getnext
 {
-	debug_echo "handle_getnext : ${@}"
-	
-	local BOID SOID RA COMMAND
+	debug_function_enter "handle_getnext" ${@}
 
-	SOID=${1}
-	shift
-	BOID=${1}
-	shift
+	local TABLE SOID BOID RA NEXTOID
+
+	# Extract parameters
+	TABLE="${1}";	shift
+	SOID="${1}";	shift
+	BOID="${1}";	shift
+	RA=(${@})
+	
+	# If we were not passed the name of a table in $1 then we're done so log an
+	# error, send NONE and return.
+	if [[ "${TABLE}" != \#* ]]; then
+		error_echo "handle_getnext: parameter 1 is not a table!"
+		send_none
+		debug_function_return 1
+		return 1
+	fi  
+
+	# Get the next OID.
+	NEXTOID=$(get_next_oid ${TABLE} ${BOID} ${RA[@]})
+
+	# If we didn't get a next OID then log a warning and send NONE instead.
+	if [[ -z "${NEXTOID}" ]]; then
+		debug_echo "handle_getnext: got no NEXTOID, using NONE instead"
+		NEXTOID="NONE"
+	fi
+			
+	# Handle the original request but send the next OID.
+	handle_get "${TABLE}" ${NEXTOID} ${BOID} ${RA[@]}
+	debug_function_return
+}
+
+# Function to get the next index in an array
+#
+#	@in_param	$1 - The name of the array variable
+#	@in_param	$2 - The current index
+#	@returns	   - The number of the next index or 0 if none.
+function get_next_array_index
+{
+	debug_function_enter "get_next_array_index" ${@}
+	
+	AS="echo $"
+	AS="${AS}{!${1}[*]}"
+	AX=$(eval ${AS})
+	debug_echo "get_next_array_index: array access string: ${AS}" 
+	debug_echo "get_next_array_index: array indexes: ${AX}"
+	
+	for IX in ${AX}; do
+		if (( ${IX} > ${2} )); then
+			debug_echo "get_next_array_index: found next index: ${IX}"
+			debug_function_return ${IX}
+			return ${IX}
+		fi
+	done
+	
+	debug_function_return 0
+	return 0
+}
+
+# Function to get the next OID
+#
+#	@in_param	$1 - The name of an array, prefixed with a #, from which to retrieve
+#					 either the command to execute or the name of another array.
+#	@in_param	$2 - The base OID this is a request for
+#	@in_param	$+ - An array containing the request elements
+#
+function get_next_oid
+{
+	debug_function_enter "get_next_oid" ${@}
+	
+	local TABLE BOID RA DTABLE ITABLE NEWOID NINDEX
+
+	# Extract parameters
+	TABLE="${1}";	shift
+	BOID="${1}";	shift
 	RA=(${@})
 
-	# If we have an empty array 
-	
+	# We were passed the name of a table so strip the leading #, make the variable
+	# name.
+	TABLE="${TABLE#\#}"
+	DTABLE="${TABLE}[${RA[0]}]"
+	ITABLE="${TABLE}[0]"
+	debug_echo "get_next_oid: calculated table variable: ${DTABLE}"
 
-	return
-
-	# If the ROID starts with...
-	case ${RTYPE} in
-		0) # It is a base query so send the OID of the first index value
-		OID=${1}1.1
-		debug_echo "GETNEXT request passed to handle_get with new OID: ${OID}"
-		handle_get
-		;;
+	# If the deferenced value of TABLE starts with a # then it is a redirect to
+	# another table, if not it is a command.
+	if [[ "${!DTABLE}" == \#* ]]; then
+		# We have another table.  Simply call get_next_oid with the new table name,
+		# BOID and RA.
+		NEWOID=$(get_next_oid ${!DTABLE} ${BOID}.${RA[0]} ${RA[@]:1})
+		debug_echo "get_next_oid: got next oid: ${NEWOID}" 
 		
-		*) # It is a normal query so...
-		# If the next index is in range send the next OID...
-		NINDEX=$((${RINDEX} + 1))
-		if (( ${NINDEX} <= ${#DEVICES[@]} )); then
-			OID=${1}${RTYPE}.${NINDEX}
-			debug_echo "GETNEXT request passed to handle_get with new OID: ${OID}"
-			handle_get
+		# If we got a new oid then we are done
+		if [[ -n "${NEWOID}" ]]; then
+			echo ${NEWOID}
 		else
-			# ...otherwise send the next range if it is within this MIB or NONE
-			NTYPE=$((${RTYPE} + 1))
-		if (( ${NTYPE} <= ${#FTABLE[@]} )); then
-				OID=${1}${NTYPE}.1
-				debug_echo "GETNEXT request passed to handle_get with new OID: ${OID}"
-				handle_get
-			else
-				echo "NONE"
-			fi
+			debug_echo "get_next_oid: got no next OID"
+			debug_echo "get_next_oid: TABLE = $TABLE"
+			debug_echo "get_next_oid: BOID = $BOID"
+			debug_echo "get_next_oid: RA = ${RA[@]}"
 		fi
-		;;
-	esac
+	else
+		# We have a command.  Get it from the table, add the SOID, new BOID and
+		# remaining R[equest]A[array] and eval it.
+		COMMAND="${!ITABLE} ${BOID}.${RA[0]} ${RA[@]:1}"
+		debug_echo "get_next_oid: found command in table: \"${COMMAND}\""
+		eval "${COMMAND}"
+		NINDEX=$?
+		debug_echo "get_next_oid: got new index of: ${NINDEX}"
+		
+		# If the new index we got is greater than 0 then we can use it so 
+		# create the new OID, echo it, and return.
+		if (( ${NINDEX} > 0 )); then
+			debug_echo "get_next_oid: created oid: ${BOID}.${RA[0]}.${NINDEX}"
+			echo ${BOID}.${RA[0]}.${NINDEX}
+			debug_function_return
+			return
+		fi
+		
+		# If we got this far then we have reached the upper bounds of this index.
+		# We need to find the next index in the table.
+		debug_echo "get_next_oid: index out of bounds"
+		debug_echo "get_next_oid: TABLE = $TABLE"
+		debug_echo "get_next_oid: BOID = $BOID"
+		debug_echo "get_next_oid: RA = ${RA[@]}"
+
+		get_next_array_index $TABLE ${RA[0]}
+		NINDEX=$?
+		get_next_oid ${TABLE} ${BOID} ${NINDEX} 0  
+	fi
+	
+	debug_function_return
 }
 
 # Function to handle GET requests
@@ -268,7 +382,7 @@ function handle_getnext
 #
 function handle_get
 {
-	debug_echo "handle_get : ${@}"
+	debug_function_enter "handle_get" ${@}
 	
 	local BOID SOID TABLE RA COMMAND
 
@@ -283,6 +397,7 @@ function handle_get
 	if [[ "${TABLE}" != \#* ]]; then
 		error_echo "handle_get: parameter 1 is not a table!"
 		send_none ${SOID}
+		debug_function_return 1
 		return 1
 	fi  
 	
@@ -291,6 +406,7 @@ function handle_get
 	if (( ${#RA[@]} == 0 )); then
 		error_echo "handle_get: R[equest]A[array] is empty already!"
 		send_none ${SOID}
+		debug_function_return 1
 		return 1
 	fi  
 
@@ -305,6 +421,7 @@ function handle_get
 	if [[ -z ${!TABLE+defined} ]]; then
 		debug_echo "handle_get: table entry is empty!"
 		send_none ${SOID}
+		debug_function_return 1
 		return 1
 	fi	
 
@@ -321,6 +438,8 @@ function handle_get
 		debug_echo "handle_get: found command in table: \"${COMMAND}\""
 		eval "${COMMAND}"
 	fi
+	
+	debug_function_return
 }
 
 # Main functional loop
