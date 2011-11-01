@@ -282,12 +282,12 @@ function get_next_array_index
 	AS="echo $"
 	AS="${AS}{!${1}[*]}"
 	AX=$(eval ${AS})
-	debug_echo "get_next_array_index: array access string: ${AS}" 
-	debug_echo "get_next_array_index: array indexes: ${AX}"
+	debug_echo "array access string: ${AS}" 
+	debug_echo "array indices: ${AX}"
 	
 	for IX in ${AX}; do
 		if (( ${IX} > ${2} )); then
-			debug_echo "get_next_array_index: found next index: ${IX}"
+			debug_echo "found next index: ${IX}"
 			debug_function_return ${IX}
 			return ${IX}
 		fi
@@ -301,8 +301,8 @@ function get_next_array_index
 #
 #	@in_param	$1 - The name of an array, prefixed with a #, from which to retrieve
 #					 either the command to execute or the name of another array.
-#	@in_param	$2 - The base OID this is a request for
-#	@in_param	$+ - An array containing the request elements
+#	@in_param	$2 - The base OID this is a request for.
+#	@in_param	$+ - An array containing the request elements, if any.
 #
 function get_next_oid
 {
@@ -315,12 +315,17 @@ function get_next_oid
 	BOID="${1}";	shift
 	RA=(${@})
 
-	# We were passed the name of a table so strip the leading #, make the variable
-	# name.
+	# We were passed the name of a table so strip the leading #.
 	TABLE="${TABLE#\#}"
+	
+	# If we have no request elements then use the first index in the table 
+	if (( ${#RA[@]} <= 0 )); then
+		get_next_array_index $TABLE 0
+		RA[0]=$?
+	fi
+	
 	DTABLE="${TABLE}[${RA[0]}]"
-	ITABLE="${TABLE}[0]"
-	debug_echo "get_next_oid: calculated table variable: ${DTABLE}"
+	debug_echo "calculated table variable: ${DTABLE}"
 
 	# If the deferenced value of TABLE starts with a # then it is a redirect to
 	# another table, if not it is a command.
@@ -334,24 +339,25 @@ function get_next_oid
 		if [[ -n "${NEWOID}" ]]; then
 			echo ${NEWOID}
 		else
-			debug_echo "get_next_oid: got no next OID"
-			debug_echo "get_next_oid: TABLE = $TABLE"
-			debug_echo "get_next_oid: BOID = $BOID"
-			debug_echo "get_next_oid: RA = ${RA[@]}"
+			debug_echo "got no next OID"
+			debug_echo "TABLE = $TABLE"
+			debug_echo "BOID = $BOID"
+			debug_echo "RA = ${RA[@]}"
 		fi
 	else
 		# We have a command.  Get it from the table, add the SOID, new BOID and
 		# remaining R[equest]A[array] and eval it.
+		ITABLE="${TABLE}[0]"
 		COMMAND="${!ITABLE} ${BOID}.${RA[0]} ${RA[@]:1}"
-		debug_echo "get_next_oid: found command in table: \"${COMMAND}\""
+		debug_echo "found command in table: \"${COMMAND}\""
 		eval "${COMMAND}"
 		NINDEX=$?
-		debug_echo "get_next_oid: got new index of: ${NINDEX}"
+		debug_echo "got new index of: ${NINDEX}"
 		
 		# If the new index we got is greater than 0 then we can use it so 
 		# create the new OID, echo it, and return.
 		if (( ${NINDEX} > 0 )); then
-			debug_echo "get_next_oid: created oid: ${BOID}.${RA[0]}.${NINDEX}"
+			debug_echo "created oid: ${BOID}.${RA[0]}.${NINDEX}"
 			echo ${BOID}.${RA[0]}.${NINDEX}
 			debug_function_return
 			return
@@ -359,10 +365,10 @@ function get_next_oid
 		
 		# If we got this far then we have reached the upper bounds of this index.
 		# We need to find the next index in the table.
-		debug_echo "get_next_oid: index out of bounds"
-		debug_echo "get_next_oid: TABLE = $TABLE"
-		debug_echo "get_next_oid: BOID = $BOID"
-		debug_echo "get_next_oid: RA = ${RA[@]}"
+		debug_echo "index out of bounds"
+		debug_echo "TABLE = $TABLE"
+		debug_echo "BOID = $BOID"
+		debug_echo "RA = ${RA[@]}"
 
 		get_next_array_index $TABLE ${RA[0]}
 		NINDEX=$?
@@ -414,12 +420,12 @@ function handle_get
 	# name.
 	TABLE="${TABLE#\#}"
 	TABLE="${TABLE}[${RA[0]}]"
-	debug_echo "handle_get: calculated table variable: ${TABLE}"
+	debug_echo "calculated table variable: ${TABLE}"
 
 	# Check that something is defined for this entry.  If it isn't log an error,
 	# send NONE and return.
 	if [[ -z ${!TABLE+defined} ]]; then
-		debug_echo "handle_get: table entry is empty!"
+		debug_echo "table entry is empty!"
 		send_none ${SOID}
 		debug_function_return 1
 		return 1
@@ -435,7 +441,7 @@ function handle_get
 		# We have a command.  Get it from the table, add the SOID, new BOID and
 		# remaining R[equest]A[array] and eval it.
 		COMMAND="${!TABLE} ${SOID} ${BOID}.${RA[0]} ${RA[@]:1}"
-		debug_echo "handle_get: found command in table: \"${COMMAND}\""
+		debug_echo "found command in table: \"${COMMAND}\""
 		eval "${COMMAND}"
 	fi
 	
