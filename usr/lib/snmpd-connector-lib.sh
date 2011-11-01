@@ -11,12 +11,12 @@ function die
 
 function error_echo
 {
-	echo "${@}" >&2
+	echo "error: ${@}" >&2
 }
 
 function debug_echo
 {
-[[ -n ${DEBUG} ]] && error_echo "debug: ${@}"
+	[[ -n "${DEBUG}" ]] && echo "debug: ${@}" >&2
 }
 
 function echo_array
@@ -40,7 +40,7 @@ function handle_ping
 #
 function handle_unknown_query
 {
-	echo "ERROR [Unknown Query]"
+	error_echo "ERROR [Unknown Query]"
 	[[ -n ${DEBUG} ]] && logger -p local1.warn "Unknown query: ${1}"
 }
 
@@ -51,7 +51,7 @@ function handle_unknown_query
 function handle_unknown_oid
 {
 	echo "NONE"
-	[[ -n ${DEBUG} ]] && logger -p local1.warn "GET request for unknown OID: ${1} (RTYPE out of range)"
+	debug_echo "GET request for unknown OID: ${1}"
 }
 
 # Function to handle a SET request.
@@ -63,7 +63,7 @@ function handle_set
 	read OID
 	read VALUE
 	echo "not-writable"
-	[[ -n ${DEBUG} ]] && logger -p local1.warn "Attempt to SET ${OID} to ${VALUE}"
+	debug_echo "Attempt to SET ${OID} to ${VALUE}"
 }
 
 # Function to get the request OID
@@ -90,7 +90,7 @@ function split_request_oid
 	# If the requested OID doesn't start with our base OID then we're done already.
 	if [[ "${2}" != ${1}* ]]; then
 		echo "NONE"
-		[[ -n ${DEBUG} ]] && logger -p local1.warn "unknown base OID: ${2}"
+		debug_echo "unknown base OID: ${2}"
 		return 1
 	fi
 		
@@ -138,6 +138,21 @@ function get_and_split_request_oid
 	[[ $? ]] && eval "$3=(${RAY[@]})" || return 2
 }
 
+# Helper function to send NONE
+#
+#	@in_param	$1 - The (optional) OID to send before the data
+#
+function send_none
+{
+	if [[ -n "$1" ]]; then
+		echo ${1}
+		debug_echo "Sent [${1}] NONE"
+	else
+		debug_echo "Sent NONE"
+	fi
+	echo "NONE"
+}
+
 # Helper function to send an integer - called: send_integer OID value
 #
 #	@in_param	$1 - The OID to send before the data
@@ -145,7 +160,7 @@ function get_and_split_request_oid
 #
 function send_integer
 {
-[[ -n ${DEBUG} ]] && logger -p local1.info "Sent ${1} INTEGER ${2}"
+	debug_echo "Sent ${1} INTEGER ${2}"
 	echo ${1}
 	echo "integer"
 	echo ${2}
@@ -158,7 +173,7 @@ function send_integer
 #
 function send_boolean
 {
-	[[ -n ${DEBUG} ]] && logger -p local1.info "Sent ${1} TruthValue ${2}"
+	debug_echo "Sent ${1} TruthValue ${2}"
 	echo ${1}
 	echo "integer"
 	[[ ${2} == "T" ]] && echo 1 || echo 2
@@ -171,7 +186,7 @@ function send_boolean
 #
 function send_string
 {
-	[[ -n ${DEBUG} ]] && logger -p local1.info "Sent ${1} STRING ${2}"
+	debug_echo "Sent ${1} STRING ${2}"
 	echo ${1}
 	echo "string"
 	echo ${2}
@@ -184,7 +199,7 @@ function send_string
 #
 function send_gauge
 {
-	[[ -n ${DEBUG} ]] && logger -p local1.info "Sent ${1} GAUGE ${2}"
+	debug_echo "Sent ${1} GAUGE ${2}"
 	echo ${1}
 	echo "gauge"
 	echo ${2}
@@ -198,7 +213,7 @@ function send_gauge
 #
 function handle_getnext
 {
-	echo "handle_getnext : ${@}"
+	debug_echo "handle_getnext : ${@}"
 	
 	local BOID SOID RA COMMAND
 
@@ -217,7 +232,7 @@ function handle_getnext
 	case ${RTYPE} in
 		0) # It is a base query so send the OID of the first index value
 		OID=${1}1.1
-		[[ -n ${DEBUG} ]] && logger -p local1.info "GETNEXT request passed to handle_get with new OID: ${OID}"
+		debug_echo "GETNEXT request passed to handle_get with new OID: ${OID}"
 		handle_get
 		;;
 		
@@ -226,14 +241,14 @@ function handle_getnext
 		NINDEX=$((${RINDEX} + 1))
 		if (( ${NINDEX} <= ${#DEVICES[@]} )); then
 			OID=${1}${RTYPE}.${NINDEX}
-			[[ -n ${DEBUG} ]] && logger -p local1.info "GETNEXT request passed to handle_get with new OID: ${OID}"
+			debug_echo "GETNEXT request passed to handle_get with new OID: ${OID}"
 			handle_get
 		else
 			# ...otherwise send the next range if it is within this MIB or NONE
 			NTYPE=$((${RTYPE} + 1))
 		if (( ${NTYPE} <= ${#FTABLE[@]} )); then
 				OID=${1}${NTYPE}.1
-				[[ -n ${DEBUG} ]] && logger -p local1.info "GETNEXT request passed to handle_get with new OID: ${OID}"
+				debug_echo "GETNEXT request passed to handle_get with new OID: ${OID}"
 				handle_get
 			else
 				echo "NONE"
@@ -245,92 +260,67 @@ function handle_getnext
 
 # Function to handle GET requests
 #
-#	@in_param	$1 - The OID to send along with this request
-#	@in_param	$2 - The base OID this is a request for
+#	@in_param	$1 - The name of an array, prefixed with a #, from which to retrieve
+#					 either the command to execute or the name of another array.
+#	@in_param	$2 - The OID to send along with this request
+#	@in_param	$3 - The base OID this is a request for
 #	@in_param	$+ - An array containing the request elements
 #
 function handle_get
 {
-	echo "handle_get : ${@}"
+	debug_echo "handle_get : ${@}"
 	
-	local BOID SOID RA COMMAND
+	local BOID SOID TABLE RA COMMAND
 
-	SOID=${1}
-	shift
-	BOID=${1}
-	shift
+	# Extract parameters
+	TABLE="${1}";	shift
+	SOID="${1}";	shift
+	BOID="${1}";	shift
 	RA=(${@})
 
-	# Check that a command is defined for this entry
-	if [[ -z ${RTABLE[${RA[0]}]+defined} ]]; then
-		echo "NONE"
-		return
+	# If we were not passed the name of a table in $1 then we're done so log an
+	# error, send NONE and return.
+	if [[ "${TABLE}" != \#* ]]; then
+		error_echo "handle_get: parameter 1 is not a table!"
+		send_none ${SOID}
+		return 1
+	fi  
+	
+	# If the R[equest]A[array] does not contain any elements then we're done so
+	# log an error, send NONE and return.
+	if (( ${#RA[@]} == 0 )); then
+		error_echo "handle_get: R[equest]A[array] is empty already!"
+		send_none ${SOID}
+		return 1
+	fi  
+
+	# We were passed the name of a table so strip the leading #, make the variable
+	# name.
+	TABLE="${TABLE#\#}"
+	TABLE="${TABLE}[${RA[0]}]"
+	debug_echo "handle_get: calculated table variable: ${TABLE}"
+
+	# Check that something is defined for this entry.  If it isn't log an error,
+	# send NONE and return.
+	if [[ -z ${!TABLE+defined} ]]; then
+		debug_echo "handle_get: table entry is empty!"
+		send_none ${SOID}
+		return 1
 	fi	
 
-	# Get the command from the root table
-	COMMAND="${RTABLE[${RA[0]}]} ${SOID} ${BOID}.${RA[0]} ${RA[@]:1}"
-
-	echo "COMMAND=\"${COMMAND}\""
-	eval "${COMMAND}"
-}
-
-# Function to handle a table get request
-#
-#	@in_param	$1 - The name of the entry table
-#	@in_param	$2 - The OID to send along with this request
-#	@in_param	$3 - The base OID this is a request for
-#	@in_param	$+ - An array containing the remaining request elements
-#
-function handle_table_get
-{
-	echo "handle_table_get : ${@}"
-	
-	local BOID SOID TABLE RA COMMAND
-	
-	TABLE="${1}"
-	shift
-	SOID=${1}
-	shift
-	BOID=${1}
-	shift
-	RA=(${@})
-
-	TABLE="${TABLE}[${RA[0]}]"
-
-	# Get the command from the specified entry table
-	COMMAND="${!TABLE} ${SOID} ${BOID}.${RA[0]} ${RA[@]:1}"
-	echo COMMAND=${COMMAND}
-	eval "${COMMAND}"
-}
-
-# Function to handle a table entry get request
-#
-#	@in_param	$1 - The name of the function table
-#	@in_param	$2 - The OID to send along with this request
-#	@in_param	$3 - The base OID this is a request for
-#	@in_param	$+ - An array containing the remaining request elements
-#
-function handle_table_entry_get
-{
-	echo "handle_table_entry_get : ${@}"
-
-	local BOID SOID TABLE RA COMMAND
-	
-	TABLE="${1}"
-	shift
-	SOID=${1}
-	shift
-	BOID=${1}
-	shift
-	RA=(${@})
-	
-	TABLE="${TABLE}[${RA[0]}]"
-	
-	# Get the command from the specified entry table
-	COMMAND="${!TABLE} ${SOID} ${BOID}.${RA[0]} ${RA[@]:1}"
-	echo COMMAND=${COMMAND}
-	
-	eval "${COMMAND}"
+	# If the deferenced value of TABLE starts with a # then it is a redirect to
+	# another table, if not it is a command.
+	if [[ "${!TABLE}" == \#* ]]; then
+		# We have another table.  Simply call handle_get with the new table name,
+		# BOID and RA.
+		handle_get ${!TABLE} ${SOID} ${BOID}.${RA[0]} ${RA[@]:1}	
+	else
+		# We have a command.  Get it from the table, add the SOID, new BOID and
+		# remaining R[equest]A[array] and eval it.
+		COMMAND="${!TABLE} ${SOID} ${BOID}.${RA[0]} ${RA[@]:1}"
+		debug_echo "handle_get: found command in table: \"${COMMAND}\""
+		eval "${COMMAND}"
+	fi
 }
 
 # Main functional loop
@@ -364,13 +354,13 @@ function the_loop
 			
 			"get")				# Handle GET requests
 			get_and_split_request_oid ${BASE_OID} OID RARRAY
-			(( ${#RARRAY[@]} > 0)) && handle_get ${OID} ${BASE_OID} ${RARRAY[@]} || echo "NONE"
+			(( ${#RARRAY[@]} > 0)) && handle_get "#RTABLE" ${OID} ${BASE_OID} ${RARRAY[@]} || send_none ${OID}
 			;;
 	
 			"getnext")			# Handle GETNEXT requests
 			get_and_split_request_oid ${BASE_OID} OID RARRAY
 			(( ${#RARRAY[@]} > 0)) && RARRAY="${RARRAY[@]}" || RARRAY="" 
-			handle_getnext ${OID} ${BASE_OID} ${RARRAY}
+			handle_getnext "#RTABLE" ${OID} ${BASE_OID} ${RARRAY}
 			;;
 	
 			"set")				# Handle SET requests
