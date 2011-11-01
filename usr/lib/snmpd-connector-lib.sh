@@ -1,12 +1,22 @@
 # Function to quit with error
 # 
-#	@param	$1 - The error message to die with
+#	@in_param	$1 - The error message to die with
 #
 function die
 {
 	logger -p local1.error "ERROR: ${1}"
 	echo "ERROR: ${1}" >&2
 	exit
+}
+
+function error_echo
+{
+	echo "${@}" >&2
+}
+
+function debug_echo
+{
+[[ -n ${DEBUG} ]] && error_echo "debug: ${@}"
 }
 
 function echo_array
@@ -26,7 +36,7 @@ function handle_ping
 
 # Function to handle an unknown query
 #
-#	@param	$1 - The query type.
+#	@in_param	$1 - The query type.
 #
 function handle_unknown_query
 {
@@ -36,7 +46,7 @@ function handle_unknown_query
 
 # Function to handle a query for an unknown OID
 #
-#	@param	$1 - The OID this query was for.
+#	@in_param	$1 - The OID this query was for.
 #
 function handle_unknown_oid
 {
@@ -69,57 +79,69 @@ function get_request_oid
 
 # Function to split the requested OID into component parts
 #
-#	@param	$1 - The BASE_OID which this should be a request for
-#	@param	$2 - The OID to split
-#	@return	$3 - An array containing the request elements 
+#	@in_param	$1 - The base OID which this should be a request for
+#	@in_param	$2 - The OID to split
+#	@out_param	$3 - An array containing the request elements 
 #
 function split_request_oid
 {	
 	local ROID RFA BWD 
-	
-	# Split off our BASE_OID to get a R[elative]OID.
-	BWD="${1}." 
-	ROID=${2#${BWD}}
 
 	# If the requested OID doesn't start with our base OID then we're done already.
-	if [[ ${ROID} == ${2} ]]; then
-		[[ -n ${DEBUG} ]] && logger -p local1.warn "unknown base OID: ${2}"
+	if [[ "${2}" != ${1}* ]]; then
 		echo "NONE"
-		return
+		[[ -n ${DEBUG} ]] && logger -p local1.warn "unknown base OID: ${2}"
+		return 1
 	fi
+		
+	# Split off our BASE_OID to get a R[elative]OID and then remove the leading "." of that ROID.
+	BWD="${1}" 
+	ROID=${2#${BWD}}
+	ROID=${ROID#.}
+
+	# If we got no R[elative]OID then we're done already.
+	[[ -z "${ROID}" ]] && return 2
 
 	# Split the ROID around the dots to get the fields for this request to get a R[equest]F[ield]A[rray].
 	IFS="."
 	RFA=(${ROID})
 	unset IFS
 
-	(( ${#RFA[@]} > 0  )) && eval "$3=(${RFA[@]})" 
+	# If we got some array elements then place them in $3 and indicate success
+	if (( ${#RFA[@]} > 0  )); then
+		eval "$3=(${RFA[@]})"
+		return
+	fi
+	
+	# Indicate failure.
+	return 3 
 }
 
 # Function to get and split the request OID
 #
-#	@param	$1 - The BASE_OID to split off first
-#	@return $2 - The complete OID
-#	@return $3 - An array containing the request elements
+#	@in_param	$1 - The base OID to split off first
+#	@out_param	$2 - The complete OID
+#	@out_param	$3 - An array containing the request elements
 #
 function get_and_split_request_oid
 {
-	local TOID RAY
+	local TOID RAY=""
 	
 	# Read the OID this request is for
 	read TOID
 	
-	if [[ -n "${TOID}" ]]; then
-		eval "$2=\"${TOID}\""
-		split_request_oid $1 ${TOID} RAY
-		(( ${#RAY[@]} > 0  )) && eval "$3=(${RAY[@]})"
-	fi 
+	# If we were passed an empty string then we're done already.
+	[[ -z "${TOID}" ]] && return 1
+	
+	eval "$2=\"${TOID}\""
+	split_request_oid $1 ${TOID} RAY
+	[[ $? ]] && eval "$3=(${RAY[@]})" || return 2
 }
 
 # Helper function to send an integer - called: send_integer OID value
 #
-#	$1 - The OID to send before the data
-#	$2 - The VALUE to send
+#	@in_param	$1 - The OID to send before the data
+#	@in_param	$2 - The VALUE to send
 #
 function send_integer
 {
@@ -131,8 +153,8 @@ function send_integer
 
 # Helper function to send an integer - called: send_boolean OID value
 #
-#	$1 - The OID to send before the data
-#	$2 - The VALUE to send (T for true, F for false)
+#	@in_param	$1 - The OID to send before the data
+#	@in_param	$2 - The VALUE to send (T for true, F for false)
 #
 function send_boolean
 {
@@ -144,8 +166,8 @@ function send_boolean
 
 # Helper function to send a string - called: send_string OID value
 #
-#	$1 - The OID to send before the data
-#	$2 - The VALUE to send
+#	@in_param	$1 - The OID to send before the data
+#	@in_param	$2 - The VALUE to send
 #
 function send_string
 {
@@ -157,8 +179,8 @@ function send_string
 
 # Helper function to send a gauge - called: send_gauge OID value
 #
-#	$1 - The OID to send before the data
-#	$2 - The VALUE to send
+#	@in_param	$1 - The OID to send before the data
+#	@in_param	$2 - The VALUE to send
 #
 function send_gauge
 {
@@ -170,18 +192,27 @@ function send_gauge
 
 # Function to handle GETNEXT requests
 #
-#	$1 - The BASE_OID to handle requests for
-#	$2 - The OID this request is for
+#	@in_param	$1 - The OID this is a request for
+#	@in_param	$2 - The base OID this is a request for
+#	@in_param	$+ - An array containing the request elements
 #
 function handle_getnext
 {
-	[[ -n ${DEBUG} ]] && logger -p local1.info "GETNEXT request for OID: ${OID}"
+	echo "handle_getnext : ${@}"
 	
-	local RTYPE RINDEX OID
+	local BOID SOID RA COMMAND
+
+	SOID=${1}
+	shift
+	BOID=${1}
+	shift
+	RA=(${@})
+
+	# If we have an empty array 
 	
-	# Split the requested OID to get the R[equest]TYPE and R[equest]INDEX
-	split_request_oid ${1} ${2} RTYPE RINDEX
-		
+
+	return
+
 	# If the ROID starts with...
 	case ${RTYPE} in
 		0) # It is a base query so send the OID of the first index value
@@ -214,9 +245,9 @@ function handle_getnext
 
 # Function to handle GET requests
 #
-#	@param	$1 - The OID to send along with this request
-#	@param	$2 - The base OID this is a request for
-#	@param	$+ - An array containing the request elements
+#	@in_param	$1 - The OID to send along with this request
+#	@in_param	$2 - The base OID this is a request for
+#	@in_param	$+ - An array containing the request elements
 #
 function handle_get
 {
@@ -224,25 +255,31 @@ function handle_get
 	
 	local BOID SOID RA COMMAND
 
-	BOID=${1}
-	shift
 	SOID=${1}
 	shift
+	BOID=${1}
+	shift
 	RA=(${@})
+
+	# Check that a command is defined for this entry
+	if [[ -z ${RTABLE[${RA[0]}]+defined} ]]; then
+		echo "NONE"
+		return
+	fi	
 
 	# Get the command from the root table
 	COMMAND="${RTABLE[${RA[0]}]} ${SOID} ${BOID}.${RA[0]} ${RA[@]:1}"
 
-	echo "COMMAND = \"${COMMAND}\""
+	echo "COMMAND=\"${COMMAND}\""
 	eval "${COMMAND}"
 }
 
 # Function to handle a table get request
 #
-#	@param	$1 - The name of the entry table
-#	@param	$2 - The OID to send along with this request
-#	@param	$3 - The base OID this is a request for
-#	@param	$+ - An array containing the remaining request elements
+#	@in_param	$1 - The name of the entry table
+#	@in_param	$2 - The OID to send along with this request
+#	@in_param	$3 - The base OID this is a request for
+#	@in_param	$+ - An array containing the remaining request elements
 #
 function handle_table_get
 {
@@ -250,26 +287,28 @@ function handle_table_get
 	
 	local BOID SOID TABLE RA COMMAND
 	
-	TABLE=${1}
-	shift
-	BOID=${1}
+	TABLE="${1}"
 	shift
 	SOID=${1}
 	shift
+	BOID=${1}
+	shift
 	RA=(${@})
-	
+
+	TABLE="${TABLE}[${RA[0]}]"
+
 	# Get the command from the specified entry table
-	COMMAND="\${${TABLE}[${RA[0]}]} ${SOID} ${BOID}.${RA[0]} ${RA[@]:1}"
-	eval "echo COMMAND=${COMMAND}"
+	COMMAND="${!TABLE} ${SOID} ${BOID}.${RA[0]} ${RA[@]:1}"
+	echo COMMAND=${COMMAND}
 	eval "${COMMAND}"
 }
 
 # Function to handle a table entry get request
 #
-#	@param	$1 - The name of the function table
-#	@param	$2 - The OID to send along with this request
-#	@param	$3 - The base OID this is a request for
-#	@param	$+ - An array containing the remaining request elements
+#	@in_param	$1 - The name of the function table
+#	@in_param	$2 - The OID to send along with this request
+#	@in_param	$3 - The base OID this is a request for
+#	@in_param	$+ - An array containing the remaining request elements
 #
 function handle_table_entry_get
 {
@@ -277,21 +316,22 @@ function handle_table_entry_get
 
 	local BOID SOID TABLE RA COMMAND
 	
-	TABLE=${1}
-	shift
-	BOID=${1}
+	TABLE="${1}"
 	shift
 	SOID=${1}
 	shift
+	BOID=${1}
+	shift
 	RA=(${@})
 	
+	TABLE="${TABLE}[${RA[0]}]"
+	
 	# Get the command from the specified entry table
-	COMMAND="\"\${${TABLE}[${RA[0]}]} ${SOID} ${BOID}.${RA[0]} ${RA[@]:1}\""
-	eval "echo COMMAND=${COMMAND}"
+	COMMAND="${!TABLE} ${SOID} ${BOID}.${RA[0]} ${RA[@]:1}"
+	echo COMMAND=${COMMAND}
 	
 	eval "${COMMAND}"
 }
-
 
 # Main functional loop
 function the_loop
@@ -323,13 +363,14 @@ function the_loop
 			;;
 			
 			"get")				# Handle GET requests
-			get_and_split_request_oid $BASE_OID OID RARRAY
-			handle_get $BASE_OID ${OID} ${RARRAY[@]}
+			get_and_split_request_oid ${BASE_OID} OID RARRAY
+			(( ${#RARRAY[@]} > 0)) && handle_get ${OID} ${BASE_OID} ${RARRAY[@]} || echo "NONE"
 			;;
 	
 			"getnext")			# Handle GETNEXT requests
-			get_and_split_request_oid $BASE_OID OID RARRAY
-			handle_getnext $BASE_OID ${OID} ${RARRAY[@]}
+			get_and_split_request_oid ${BASE_OID} OID RARRAY
+			(( ${#RARRAY[@]} > 0)) && RARRAY="${RARRAY[@]}" || RARRAY="" 
+			handle_getnext ${OID} ${BASE_OID} ${RARRAY}
 			;;
 	
 			"set")				# Handle SET requests
