@@ -174,6 +174,7 @@ function send_none
 		debug_echo "Sent NONE"
 	fi
 	echo "NONE"
+	echo
 }
 
 # Helper function to send an integer - called: send_integer OID value
@@ -433,8 +434,8 @@ function handle_get
 	# If the next R[equest]A[array] element is 0 then it is an index request so
 	# send the OID and NONE.
 	if (( ${RA[0]} == 0 )); then
-		echo $SOID
-		echo "NONE"
+		debug_echo "RA[0] is zero, index request"
+		send_none ${SOID}
 		debug_function_return
 		return
 	fi
