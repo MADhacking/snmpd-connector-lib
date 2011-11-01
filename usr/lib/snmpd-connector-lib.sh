@@ -73,7 +73,7 @@ function handle_unknown_query
 #
 function handle_unknown_oid
 {
-	echo "NONE"
+	send_none
 	debug_echo "GET request for unknown OID: ${1}"
 }
 
@@ -112,7 +112,7 @@ function split_request_oid
 
 	# If the requested OID doesn't start with our base OID then we're done already.
 	if [[ "${2}" != ${1}* ]]; then
-		echo "NONE"
+		send_none
 		debug_echo "unknown base OID: ${2}"
 		return 1
 	fi
