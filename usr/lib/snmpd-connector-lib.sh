@@ -18,15 +18,16 @@ function error_echo
 
 function debug_echo
 {
-	[[ -z "${DEBUG}" ]] && return
-	
-	v=$(printf "%-${DEBUG_INDENT}s" " ")
-	echo "debug: ${v}${@}" >&2
+	if [[ -n "${DEBUG}" || -n "${LOGGING}" ]]; then
+		v=$(printf "%-${DEBUG_INDENT}s" " ")
+		[[ -n "${DEBUG}" ]] && echo "debug: ${v}${@}" >&2
+		[[ -n "${LOGGING}" ]] && logger -p local1.warn "snmpd-connector-lib debug: ${v}${@}"
+	fi
 }
 
 function debug_function_enter
 {
-	[[ -z "${DEBUG}" ]] && return
+	[[ -z "${DEBUG}" && -z "${LOGGING}" ]] && return
 	
 	debug_echo "function ${@}"
 	debug_echo "{"
@@ -35,7 +36,7 @@ function debug_function_enter
 
 function debug_function_return
 {
-	[[ -z "${DEBUG}" ]] && return 
+	[[ -z "${DEBUG}" && -z "${LOGGING}" ]] && return
 
 	(( $DEBUG_INDENT >= 4 )) && DEBUG_INDENT=$(( $DEBUG_INDENT - 4 ))
 	debug_echo "} ${@}"
@@ -308,7 +309,7 @@ function get_next_oid
 {
 	debug_function_enter "get_next_oid" ${@}
 	
-	local TABLE BOID RA DTABLE ITABLE NEWOID NINDEX
+	local TABLE BOID RA DTABLE ITABLE NEWOID NINDEX NCOLUMN
 
 	# Extract parameters
 	TABLE="${1}";	shift
@@ -318,7 +319,7 @@ function get_next_oid
 	# We were passed the name of a table so strip the leading #.
 	TABLE="${TABLE#\#}"
 	
-	# If we have no request elements then use the first index in the table 
+	# If we have no request elements then use the first index in the table. 
 	if (( ${#RA[@]} <= 0 )); then
 		get_next_array_index $TABLE 0
 		RA[0]=$?
@@ -354,11 +355,20 @@ function get_next_oid
 		NINDEX=$?
 		debug_echo "got new index of: ${NINDEX}"
 		
-		# If the new index we got is greater than 0 then we can use it so 
-		# create the new OID, echo it, and return.
+		# If the new index we got is greater than 0 then we can use it so...
 		if (( ${NINDEX} > 0 )); then
-			debug_echo "created oid: ${BOID}.${RA[0]}.${NINDEX}"
-			echo ${BOID}.${RA[0]}.${NINDEX}
+			# If the next R[equest]A[array] element is NOT zero... 
+			if (( ${RA[0]} != 0 )); then
+				NEWOID="${BOID}.${RA[0]}.${NINDEX}"
+			else
+				get_next_array_index $TABLE 0
+				NCOLUMN=$?
+				NEWOID="${BOID}.${NCOLUMN}.${NINDEX}"
+			fi
+
+			# Echo the new OID and return.
+			debug_echo "created oid: ${NEWOID}"
+			echo ${NEWOID}
 			debug_function_return
 			return
 		fi
@@ -372,7 +382,11 @@ function get_next_oid
 
 		get_next_array_index $TABLE ${RA[0]}
 		NINDEX=$?
-		get_next_oid ${TABLE} ${BOID} ${NINDEX} 0  
+		
+		# If the next index we got was valid then keep trying with that index.
+		if (( ${NINDEX} > 0 )); then
+			get_next_oid ${TABLE} ${BOID} ${NINDEX} 0
+		fi  
 	fi
 	
 	debug_function_return
@@ -410,11 +424,20 @@ function handle_get
 	# If the R[equest]A[array] does not contain any elements then we're done so
 	# log an error, send NONE and return.
 	if (( ${#RA[@]} == 0 )); then
-		error_echo "handle_get: R[equest]A[array] is empty already!"
+		debug_echo "R[equest]A[array] is empty already!"
 		send_none ${SOID}
 		debug_function_return 1
 		return 1
-	fi  
+	fi
+	
+	# If the next R[equest]A[array] element is 0 then it is an index request so
+	# send the OID and NONE.
+	if (( ${RA[0]} == 0 )); then
+		echo $SOID
+		echo "NONE"
+		debug_function_return
+		return
+	fi
 
 	# We were passed the name of a table so strip the leading #, make the variable
 	# name.
