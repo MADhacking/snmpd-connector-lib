@@ -260,15 +260,22 @@ function handle_getnext
 
 	# Get the next OID.
 	NEXTOID=$(get_next_oid ${TABLE} ${BOID} ${RA})
+	[[ -n "${NEXTOID}" ]] && debug_echo "got NEXTOID = ${NEXTOID}"
 
-	# If we didn't get a next OID then log a warning and send NONE instead.
+	# If we didn't get a next OID then log a warning and send NONE instead and
+	# return.
 	if [[ -z "${NEXTOID}" ]]; then
-		debug_echo "handle_getnext: got no NEXTOID, using NONE instead"
-		NEXTOID="NONE"
+		debug_echo "got no NEXTOID, using NONE instead"
+		send_none
+		debug_function_return 1
+		return 1
 	fi
 			
-	# Handle the original request but send the next OID.
-	handle_get ${TABLE} ${NEXTOID} ${BOID} ${RA}
+	# Handle the new request.
+	local RARRAY
+	split_request_oid ${BOID} ${NEXTOID} RARRAY
+	handle_get ${TABLE} ${NEXTOID} ${BOID} ${RARRAY[@]}   
+
 	debug_function_return
 }
 
