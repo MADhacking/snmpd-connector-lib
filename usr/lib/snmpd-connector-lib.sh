@@ -167,14 +167,15 @@ function get_and_split_request_oid
 #
 function send_none
 {
-	if [[ -n "$1" ]]; then
+	if (( $# > 0 )); then
 		echo ${1}
-		debug_echo "Sent [${1}] NONE"
+		echo "NONE"
+		echo "N/A"
+		debug_echo "Sent [${1}] NONE N/A"
 	else
+		echo "NONE"
 		debug_echo "Sent NONE"
 	fi
-	echo "NONE"
-	echo
 }
 
 # Helper function to send an integer - called: send_integer OID value
