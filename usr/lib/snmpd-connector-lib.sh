@@ -349,10 +349,7 @@ function get_next_oid
 		if [[ -n "${NEWOID}" ]]; then
 			echo ${NEWOID}
 		else
-			debug_echo "got no next OID"
-			debug_echo "TABLE = $TABLE"
-			debug_echo "BOID = $BOID"
-			debug_echo "RA = ${RA[@]}"
+			debug_echo "got no next OID - we didn't think this was reachable!"
 		fi
 	else
 		# We have a command.  Get it from the table, add the SOID, new BOID and
@@ -385,10 +382,6 @@ function get_next_oid
 		# If we got this far then we have reached the upper bounds of this index.
 		# We need to find the next index in the table.
 		debug_echo "index out of bounds"
-		debug_echo "TABLE = $TABLE"
-		debug_echo "BOID = $BOID"
-		debug_echo "RA = ${RA[@]}"
-
 		get_next_array_index $TABLE ${RA[0]}
 		NINDEX=$?
 		
