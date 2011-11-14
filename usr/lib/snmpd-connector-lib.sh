@@ -1,55 +1,10 @@
-DEBUG_INDENT=0
+# Check if we have been included already
+[[ -n "${SNMPD_CONNECTOR_LIB_LOADED+x}" ]] && return || SNMPD_CONNECTOR_LIB_LOADED="true"
 
-# Function to quit with error
-# 
-#	@in_param	$1 - The error message to die with
-#
-function die
-{
-	logger -p local1.error "ERROR: ${1}"
-	echo "ERROR: ${1}" >&2
-	exit
-}
-
-function error_echo
-{
-	echo "error: ${@}" >&2
-}
-
-function debug_echo
-{
-	if [[ -n "${DEBUG}" || -n "${LOGGING}" ]]; then
-		v=$(printf "%-${DEBUG_INDENT}s" " ")
-		[[ -n "${DEBUG}" ]] && echo "debug: ${v}${@}" >&2
-		[[ -n "${LOGGING}" ]] && logger -p local1.warn "snmpd-connector-lib debug: ${v}${@}"
-	fi
-}
-
-function debug_function_enter
-{
-	[[ -z "${DEBUG}" && -z "${LOGGING}" ]] && return
-	
-	debug_echo "function ${@}"
-	debug_echo "{"
-	DEBUG_INDENT=$(( $DEBUG_INDENT + 4 ))
-}
-
-function debug_function_return
-{
-	[[ -z "${DEBUG}" && -z "${LOGGING}" ]] && return
-
-	(( $DEBUG_INDENT >= 4 )) && DEBUG_INDENT=$(( $DEBUG_INDENT - 4 ))
-	debug_echo "} ${@}"
-}
-
-function echo_array
-{
-	RA=($@)
-	for i in `seq 0 $(( ${#RA[@]} - 1 ))`; do
-    	echo -n "RA[$i]=\"${RA[i]}\" "
-	done
-	echo
-}
+# We rely on some functions from hacking-bash.sh
+[[ -r ${HACKING_BASH_LIB_PATH:=/usr/lib/hacking-bash.sh} ]] && \
+	source ${HACKING_BASH_LIB_PATH} || \
+	{ echo "Unable to find ${HACKING_BASH_LIB_PATH}"; exit 1; } 
 
 # Functions to handle request types
 function handle_ping
@@ -263,6 +218,9 @@ function handle_getnext
 	NEXTOID=$(get_next_oid ${TABLE} ${BOID} ${RA})
 	[[ -n "${NEXTOID}" ]] && debug_echo "got NEXTOID = ${NEXTOID}"
 
+	debug_function_return
+	return
+
 	# If we didn't get a next OID then log a warning and send NONE instead and
 	# return.
 	if [[ -z "${NEXTOID}" ]]; then
@@ -280,33 +238,6 @@ function handle_getnext
 	debug_function_return
 }
 
-# Function to get the next index in an array
-#
-#	@in_param	$1 - The name of the array variable
-#	@in_param	$2 - The current index
-#	@returns	   - The number of the next index or 0 if none.
-function get_next_array_index
-{
-	debug_function_enter "get_next_array_index" ${@}
-	
-	AS="echo $"
-	AS="${AS}{!${1}[*]}"
-	AX=$(eval ${AS})
-	debug_echo "array access string: ${AS}" 
-	debug_echo "array indices: ${AX}"
-	
-	for IX in ${AX}; do
-		if (( ${IX} > ${2} )); then
-			debug_echo "found next index: ${IX}"
-			debug_function_return ${IX}
-			return ${IX}
-		fi
-	done
-	
-	debug_function_return 0
-	return 0
-}
-
 # Function to get the next OID
 #
 #	@in_param	$1 - The name of an array, prefixed with a #, from which to retrieve
@@ -318,81 +249,177 @@ function get_next_oid
 {
 	debug_function_enter "get_next_oid" ${@}
 	
-	local TABLE BOID RA DTABLE ITABLE NEWOID NINDEX NCOLUMN
+	local TABLE BOID INDEX DTABLE NEWOID NINDEX
 
-	# Extract parameters
+	# Extract parameters, ${@} will now contain the request elements (if any).
 	TABLE="${1}";	shift
-	BOID="${1}";	shift
-	RA=(${@})
-
-	# We were passed the name of a table so strip the leading #.
 	TABLE="${TABLE#\#}"
+	BOID="${1}";	shift
 	
-	# If we have no request elements then use the first index in the table. 
-	if (( ${#RA[@]} <= 0 )); then
-		get_next_array_index $TABLE 0
-		RA[0]=$?
-	fi
-	
-	DTABLE="${TABLE}[${RA[0]}]"
-	debug_echo "calculated table variable: ${DTABLE}"
-
-	# If the deferenced value of TABLE starts with a # then it is a redirect to
-	# another table, if not it is a command.
-	if [[ "${!DTABLE}" == \#* ]]; then
-		# We have another table.  Simply call get_next_oid with the new table name,
-		# BOID and RA.
-		NEWOID=$(get_next_oid ${!DTABLE} ${BOID}.${RA[0]} ${RA[@]:1})
-		debug_echo "get_next_oid: got next oid: ${NEWOID}" 
+	# If we have no request elements then this is a speculative query to find the first OID
+	if (( $# == 0 )); then
+		debug_echo "got speculative request"
 		
-		# If we got a new oid then we are done
-		if [[ -n "${NEWOID}" ]]; then
-			echo ${NEWOID}
-		else
-			debug_echo "got no next OID - we didn't think this was reachable!"
-		fi
-	else
-		# We have a command.  Get it from the table, add the SOID, new BOID and
-		# remaining R[equest]A[array] and eval it.
-		ITABLE="${TABLE}[0]"
-		COMMAND="${!ITABLE} ${BOID}.${RA[0]} ${RA[@]:1}"
-		debug_echo "found command in table: \"${COMMAND}\""
-		eval "${COMMAND}"
-		NINDEX=$?
-		debug_echo "got new index of: ${NINDEX}"
-		
-		# If the new index we got is greater than 0 then we can use it so...
-		if (( ${NINDEX} > 0 )); then
-			# If the next R[equest]A[array] element is NOT zero... 
-			if (( ${RA[0]} != 0 )); then
-				NEWOID="${BOID}.${RA[0]}.${NINDEX}"
-			else
-				get_next_array_index $TABLE 0
-				NCOLUMN=$?
-				NEWOID="${BOID}.${NCOLUMN}.${NINDEX}"
-			fi
+		# Find the first index in the table
+		INDEX=$(get_next_array_index $TABLE)
+		debug_echo "found first index [${INDEX}]"
+		DTABLE="${TABLE}[${INDEX}]"
+		debug_echo "calculated table variable: ${DTABLE}"
 
-			# Echo the new OID and return.
-			debug_echo "created oid: ${NEWOID}"
+		# If the deferenced value of DTABLE starts with a # then it is a redirect to
+		# another table.
+		if [[ "${!DTABLE}" == \#* ]]; then
+			debug_echo "found a redirect to a table: ${!DTABLE}"
+			NEWOID=$(get_next_oid ${!DTABLE} ${BOID}.${INDEX})
+			debug_echo "got new OID: ${NEWOID}"
 			echo ${NEWOID}
 			debug_function_return
 			return
 		fi
 		
-		# If we got this far then we have reached the upper bounds of this index.
-		# We need to find the next index in the table.
-		debug_echo "index out of bounds"
-		get_next_array_index $TABLE ${RA[0]}
-		NINDEX=$?
+		# If we got this far then we have found a command in the table, not a redirect to
+		# another table.  To see if it is an indexed command (a table) we will look for an
+		# index function.
+		local INDEX_FUNCTION_VARIABLE
+		debug_echo "found a command"
+		INDEX_FUNCTION_VARIABLE="${TABLE}_INDEX"
+		is_defined_and_set ${INDEX_FUNCTION_VARIABLE}
+		if (( $? == 0 )); then
+			debug_echo "found an index function: ${!INDEX_FUNCTION_VARIABLE}"
+			NINDEX=$(${!INDEX_FUNCTION_VARIABLE})
+			debug_echo "got next table index: ${NINDEX}"
+			NEWOID="${BOID}.${INDEX}.${NINDEX}"
+			debug_echo "calculated OID: ${NEWOID}"
+			echo ${NEWOID}
+			debug_function_return
+			return
+		fi
 		
-		# If the next index we got was valid then keep trying with that index.
-		if (( ${NINDEX} > 0 )); then
-			get_next_oid ${TABLE} ${BOID} ${NINDEX} 0
-		fi  
+		# If we got this far then we have found a command in the table, not a redirect to
+		# another table AND it is NOT an indexed command (a table).  We can return the
+		# BASE OID + the index we calculated earlier.
+		debug_echo "no index function found"
+		NEWOID="${BOID}.${INDEX}"
+		debug_echo "calculated OID: ${NEWOID}"
+		echo ${NEWOID}
+		debug_function_return
+		return
 	fi
 	
+	# If we got this far then we have some request elements in ${@}.
+	debug_echo "got addressed request"
+	INDEX="${1}"
+	shift
+	debug_echo "passed index [${INDEX}]"
+	DTABLE="${TABLE}[${INDEX}]"
+	debug_echo "calculated table variable: ${DTABLE}"
+
+	# If the deferenced value of DTABLE starts with a # then it is a redirect to
+	# another table.
+	if [[ "${!DTABLE}" == \#* ]]; then
+		# Try to get the next OID from this table
+		debug_echo "found a redirect to a table: ${!DTABLE}"
+		NEWOID=$(get_next_oid ${!DTABLE} ${BOID}.${INDEX} ${@})
+		
+		# If we got a new OID then...
+		if [[ -n "${NEWOID}" ]]; then
+			debug_echo "got new OID: ${NEWOID}"
+			echo ${NEWOID}
+			debug_function_return
+			return
+		fi
+		
+		# We didn't get a new OID so try to find the next OID from the next entry 
+		# in the current table.
+		debug_echo "no new OID"
+		NINDEX=$(get_next_array_index $TABLE $INDEX)
+		if [[ -n "${NINDEX}" ]]; then
+			DTABLE="${TABLE}[${NINDEX}]"
+			debug_echo "using next table entry: ${DTABLE}"
+			
+			# If the deferenced value of DTABLE starts with a # then it is a redirect to
+			# another table.
+			if [[ "${!DTABLE}" == \#* ]]; then
+				debug_echo "found a redirect to a table: ${!DTABLE}"
+				NEWOID=$(get_next_oid ${!DTABLE} ${BOID}.${NINDEX})
+				debug_echo "got new OID: ${NEWOID}"
+			else
+				NEWOID="${BOID}.${NINDEX}"
+				debug_echo "calculated new OID: ${NEWOID}"
+			fi
+			
+			echo ${NEWOID}
+			debug_function_return
+			return
+		fi
+
+		debug_echo "no next table entry after: ${TABLE}[${INDEX}]"
+																								
+		debug_function_return
+		return
+	fi
+	
+	# If we got this far then we have found a command in the table, not a redirect to
+	# another table.  To see if it is an indexed command (a table) we will look for an
+	# index function.
+	local INDEX_FUNCTION_VARIABLE
+	debug_echo "found a command"
+	INDEX_FUNCTION_VARIABLE="${TABLE}_INDEX"
+	is_defined_and_set ${INDEX_FUNCTION_VARIABLE}
+	if (( $? == 0 )); then
+		debug_echo "found an index function: ${!INDEX_FUNCTION_VARIABLE}"
+
+		NINDEX=$(${!INDEX_FUNCTION_VARIABLE} ${1})
+		
+		# If we got a next index from the index function then return it.
+		if [[ -n "${NINDEX}" ]]; then
+			debug_echo "got next table index: ${NINDEX}"
+			NEWOID="${BOID}.${INDEX}.${NINDEX}"
+			debug_echo "calculated OID: ${NEWOID}"
+			echo ${NEWOID}
+			debug_function_return
+			return
+		fi
+			
+		# If we got this far then the index would be out of range so we need to move on
+		# to the next table entry.
+		debug_echo "next index would be out of range"
+		NINDEX=$(get_next_array_index $TABLE $INDEX)
+		if [[ -n "${NINDEX}" ]]; then
+			DTABLE="${TABLE}[${NINDEX}]"
+			debug_echo "using next table entry: ${DTABLE}"
+			NTINDEX=$(${!INDEX_FUNCTION_VARIABLE})
+			NEWOID="${BOID}.${NINDEX}.${NTINDEX}"
+			debug_echo "calculated OID: ${NEWOID}"
+			echo ${NEWOID}
+		fi
+												
+		debug_function_return
+		return
+	fi
+	
+	# If we got this far then we have found a command in the table, not a redirect to
+	# another table AND it is NOT an indexed command (a table).
+	debug_echo "no index function found"
+	
+	# Calculate the new index
+	NINDEX=$(get_next_array_index $TABLE $INDEX)
+	
+	# If we got a new index then create a new OID and return it.
+	if [[ -n "${NINDEX}" ]]; then
+		NEWOID="${BOID}.${NINDEX}"
+		debug_echo "calculated OID: ${NEWOID}"
+		echo ${NEWOID}
+		debug_function_return
+		return
+	fi
+	
+	# If we got this far then we have no next index so return nothing.
+	debug_echo "no next index found after: ${TABLE}[${INDEX}]"
+		
 	debug_function_return
 }
+
 
 # Function to handle GET requests
 #
@@ -522,5 +549,20 @@ function the_loop
 			;;
 		esac
 		
+	done
+}
+
+
+function test_walk_oids
+{
+	NEXTOID=$(get_next_oid "#RTABLE1" ${BASE_OID})
+	echo ${NEXTOID}
+	
+	while [[ -n "${NEXTOID}" && "${NEXTOID}" != "${LASTOID}" ]]; do
+		LASTOID="${NEXTOID}"
+		split_request_oid ${BASE_OID} ${NEXTOID} RARRAY
+		#echo "get_next_oid #RTABLE1 ${BASE_OID} ${RARRAY[@]}" >&2
+		NEXTOID=$(get_next_oid "#RTABLE1" ${BASE_OID} ${RARRAY[@]})
+		echo ${NEXTOID}
 	done
 }
