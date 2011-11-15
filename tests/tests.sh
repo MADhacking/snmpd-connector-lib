@@ -1,8 +1,7 @@
 #!/bin/bash
 
 # Include snmpd-connector-lib.sh or die.
-SNMPD_CONNECTOR_LIB="usr/lib/snmpd-connector-lib.sh"
-[[ ! -r ${SNMPD_CONNECTOR_LIB} ]] && echo "Unable to find ${SNMPD_CONNECTOR_LIB}" && exit 1
+[[ ! -r ${SNMPD_CONNECTOR_LIB:=/usr/lib/snmpd-connector-lib.sh} ]] && echo "Unable to find ${SNMPD_CONNECTOR_LIB}" && exit 1
 source ${SNMPD_CONNECTOR_LIB}
 
 function test_run_echo_output
@@ -59,7 +58,7 @@ function get_next_index
 BASE_OID="p.q.r"
 
 # Declare the tables
-RTABLE1[1]="#MIBOBJECTS1"
+RTABLE[1]="#MIBOBJECTS1"
 	MIBOBJECTS1[1]="#INFO"
 		INFO_INDEX="get_next_index"
 		INFO[1]="func1"
@@ -67,7 +66,7 @@ RTABLE1[1]="#MIBOBJECTS1"
 	MIBOBJECTS1[2]="#STATUS"
 		STATUS[1]="func3"
 		STATUS[2]="func4"
-RTABLE1[2]="#MIBOBJECTS2"
+RTABLE[2]="#MIBOBJECTS2"
 	MIBOBJECTS2[6]="func5"
 	MIBOBJECTS2[7]="func6"
 	MIBOBJECTS2[9]="func7"

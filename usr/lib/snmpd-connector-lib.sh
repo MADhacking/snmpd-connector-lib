@@ -218,9 +218,6 @@ function handle_getnext
 	NEXTOID=$(get_next_oid ${TABLE} ${BOID} ${RA})
 	[[ -n "${NEXTOID}" ]] && debug_echo "got NEXTOID = ${NEXTOID}"
 
-	debug_function_return
-	return
-
 	# If we didn't get a next OID then log a warning and send NONE instead and
 	# return.
 	if [[ -z "${NEXTOID}" ]]; then
@@ -555,14 +552,15 @@ function the_loop
 
 function test_walk_oids
 {
-	NEXTOID=$(get_next_oid "#RTABLE1" ${BASE_OID})
+	LASTOID=""
+	NEXTOID=$(get_next_oid "#RTABLE" ${BASE_OID})
 	echo ${NEXTOID}
 	
 	while [[ -n "${NEXTOID}" && "${NEXTOID}" != "${LASTOID}" ]]; do
 		LASTOID="${NEXTOID}"
 		split_request_oid ${BASE_OID} ${NEXTOID} RARRAY
-		#echo "get_next_oid #RTABLE1 ${BASE_OID} ${RARRAY[@]}" >&2
-		NEXTOID=$(get_next_oid "#RTABLE1" ${BASE_OID} ${RARRAY[@]})
+		#echo "get_next_oid #RTABLE ${BASE_OID} ${RARRAY[@]}" >&2
+		NEXTOID=$(get_next_oid "#RTABLE" ${BASE_OID} ${RARRAY[@]})
 		echo ${NEXTOID}
 	done
 }
