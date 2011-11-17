@@ -308,6 +308,11 @@ function get_next_oid
 	INDEX="${1}"
 	shift
 	debug_echo "passed index [${INDEX}]"
+	
+	# If the index value is zero then use the first available index.
+	(( ${INDEX} == 0 )) && INDEX=$(get_next_array_index $TABLE)
+	
+	# Calculate table variable
 	DTABLE="${TABLE}[${INDEX}]"
 	debug_echo "calculated table variable: ${DTABLE}"
 
@@ -366,7 +371,8 @@ function get_next_oid
 	if (( $? == 0 )); then
 		debug_echo "found an index function: ${!INDEX_FUNCTION_VARIABLE}"
 
-		NINDEX=$(${!INDEX_FUNCTION_VARIABLE} ${1})
+		# If we have a starting index use it, otherwise get the first index
+		(( $# > 0 )) && NINDEX=$(${!INDEX_FUNCTION_VARIABLE} ${1}) || NINDEX=$(${!INDEX_FUNCTION_VARIABLE})
 		
 		# If we got a next index from the index function then return it.
 		if [[ -n "${NINDEX}" ]]; then
