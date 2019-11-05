@@ -38,8 +38,8 @@ function handle_set
 {
 	local OID VALUE
 	
-	read OID
-	read VALUE
+	read -r OID
+	read -r VALUE
 	echo "not-writable"
 	debug_echo "Attempt to SET ${OID} to ${VALUE}"
 }
@@ -51,8 +51,8 @@ function get_request_oid
 	local TOID
 	
 	# Read the OID this request is for
-	read TOID
-	eval $1=${TOID} 
+	read -r TOID
+	eval "$1"="${TOID}"
 }
 
 # Function to split the requested OID into component parts
@@ -106,13 +106,13 @@ function get_and_split_request_oid
 	local TOID RAY=""
 	
 	# Read the OID this request is for
-	read TOID
+	read -r TOID
 	
 	# If we were passed an empty string then we're done already.
 	[[ -z "${TOID}" ]] && return 1
 	
 	eval "$2=\"${TOID}\""
-	split_request_oid $1 ${TOID} RAY
+	split_request_oid "$1" "${TOID}" RAY
 	[[ $? ]] && eval "$3=(${RAY[@]})" || return 2
 }
 
@@ -123,7 +123,7 @@ function get_and_split_request_oid
 function send_none
 {
 	if (( $# > 0 )); then
-		echo ${1}
+		echo "${1}"
 		echo "NONE"
 		echo "N/A"
 		debug_echo "Sent [${1}] NONE N/A"
@@ -141,9 +141,9 @@ function send_none
 function send_integer
 {
 	debug_echo "Sent ${1} INTEGER ${2}"
-	echo ${1}
+	echo "${1}"
 	echo "integer"
-	echo ${2}
+	echo "${2}"
 }
 
 # Helper function to send an integer - called: send_boolean OID value
@@ -154,9 +154,9 @@ function send_integer
 function send_boolean
 {
 	debug_echo "Sent ${1} TruthValue ${2}"
-	echo ${1}
+	echo "${1}"
 	echo "integer"
-	[[ ${2} == "T" ]] && echo 1 || echo 2
+	[[ "${2}" == "T" ]] && echo 1 || echo 2
 }
 
 # Helper function to send a string - called: send_string OID value
@@ -167,9 +167,9 @@ function send_boolean
 function send_string
 {
 	debug_echo "Sent ${1} STRING ${2}"
-	echo ${1}
+	echo "${1}"
 	echo "string"
-	echo ${2}
+	echo "${2}"
 }
 
 # Helper function to send a gauge - called: send_gauge OID value
@@ -180,9 +180,9 @@ function send_string
 function send_gauge
 {
 	debug_echo "Sent ${1} GAUGE ${2}"
-	echo ${1}
+	echo "${1}"
 	echo "gauge"
-	echo ${2}
+	echo "${2}"
 }
 
 # Function to handle GETNEXT requests
@@ -195,7 +195,7 @@ function send_gauge
 #
 function handle_getnext
 {
-	debug_function_enter "handle_getnext" ${@}
+	debug_function_enter "handle_getnext" "${@}"
 
 	local TABLE SOID BOID RA NEXTOID
 
@@ -215,7 +215,7 @@ function handle_getnext
 	fi  
 
 	# Get the next OID.
-	NEXTOID=$(get_next_oid ${TABLE} ${BOID} ${RA})
+	NEXTOID=$(get_next_oid "${TABLE}" "${BOID}" "${RA}")
 	[[ -n "${NEXTOID}" ]] && debug_echo "got NEXTOID = ${NEXTOID}"
 
 	# If we didn't get a next OID then log a warning and send NONE instead and
@@ -229,8 +229,8 @@ function handle_getnext
 			
 	# Handle the new request.
 	local RARRAY
-	split_request_oid ${BOID} ${NEXTOID} RARRAY
-	handle_get ${TABLE} ${NEXTOID} ${BOID} ${RARRAY[@]}   
+	split_request_oid "${BOID}" "${NEXTOID}" RARRAY
+	handle_get "${TABLE}" "${NEXTOID}" "${BOID}" "${RARRAY[@]}" 
 
 	debug_function_return
 }
@@ -244,7 +244,7 @@ function handle_getnext
 #
 function get_next_oid
 {
-	debug_function_enter "get_next_oid" ${@}
+	debug_function_enter "get_next_oid" "${@}"
 	
 	local TABLE BOID INDEX DTABLE NEWOID NINDEX
 
@@ -258,7 +258,7 @@ function get_next_oid
 		debug_echo "got speculative request"
 		
 		# Find the first index in the table
-		INDEX=$(get_next_array_index $TABLE)
+		INDEX=$(get_next_array_index "$TABLE")
 		debug_echo "found first index [${INDEX}]"
 		DTABLE="${TABLE}[${INDEX}]"
 		debug_echo "calculated table variable: ${DTABLE}"
@@ -267,9 +267,9 @@ function get_next_oid
 		# another table.
 		if [[ "${!DTABLE}" == \#* ]]; then
 			debug_echo "found a redirect to a table: ${!DTABLE}"
-			NEWOID=$(get_next_oid ${!DTABLE} ${BOID}.${INDEX})
+			NEWOID=$(get_next_oid "${!DTABLE}" "${BOID}.${INDEX}")
 			debug_echo "got new OID: ${NEWOID}"
-			echo ${NEWOID}
+			echo "${NEWOID}"
 			debug_function_return
 			return
 		fi
@@ -280,14 +280,14 @@ function get_next_oid
 		local INDEX_FUNCTION_VARIABLE
 		debug_echo "found a command"
 		INDEX_FUNCTION_VARIABLE="${TABLE}_INDEX"
-		is_defined_and_set ${INDEX_FUNCTION_VARIABLE}
+		is_defined_and_set "${INDEX_FUNCTION_VARIABLE}"
 		if (( $? == 0 )); then
 			debug_echo "found an index function: ${!INDEX_FUNCTION_VARIABLE}"
 			NINDEX=$(${!INDEX_FUNCTION_VARIABLE})
 			debug_echo "got next table index: ${NINDEX}"
 			NEWOID="${BOID}.${INDEX}.${NINDEX}"
 			debug_echo "calculated OID: ${NEWOID}"
-			echo ${NEWOID}
+			echo "${NEWOID}"
 			debug_function_return
 			return
 		fi
@@ -298,7 +298,7 @@ function get_next_oid
 		debug_echo "no index function found"
 		NEWOID="${BOID}.${INDEX}"
 		debug_echo "calculated OID: ${NEWOID}"
-		echo ${NEWOID}
+		echo "${NEWOID}"
 		debug_function_return
 		return
 	fi
@@ -310,7 +310,7 @@ function get_next_oid
 	debug_echo "passed index [${INDEX}]"
 	
 	# If the index value is zero then use the first available index.
-	(( ${INDEX} == 0 )) && INDEX=$(get_next_array_index $TABLE)
+	(( INDEX == 0 )) && INDEX=$(get_next_array_index "$TABLE")
 	
 	# Calculate table variable
 	DTABLE="${TABLE}[${INDEX}]"
@@ -321,12 +321,12 @@ function get_next_oid
 	if [[ "${!DTABLE}" == \#* ]]; then
 		# Try to get the next OID from this table
 		debug_echo "found a redirect to a table: ${!DTABLE}"
-		NEWOID=$(get_next_oid ${!DTABLE} ${BOID}.${INDEX} ${@})
+		NEWOID=$(get_next_oid "${!DTABLE}" "${BOID}.${INDEX}" "${@}")
 		
 		# If we got a new OID then...
 		if [[ -n "${NEWOID}" ]]; then
 			debug_echo "got new OID: ${NEWOID}"
-			echo ${NEWOID}
+			echo "${NEWOID}"
 			debug_function_return
 			return
 		fi
@@ -334,7 +334,7 @@ function get_next_oid
 		# We didn't get a new OID so try to find the next OID from the next entry 
 		# in the current table.
 		debug_echo "no new OID"
-		NINDEX=$(get_next_array_index $TABLE $INDEX)
+		NINDEX=$(get_next_array_index "$TABLE" "$INDEX")
 		if [[ -n "${NINDEX}" ]]; then
 			DTABLE="${TABLE}[${NINDEX}]"
 			debug_echo "using next table entry: ${DTABLE}"
@@ -343,14 +343,14 @@ function get_next_oid
 			# another table.
 			if [[ "${!DTABLE}" == \#* ]]; then
 				debug_echo "found a redirect to a table: ${!DTABLE}"
-				NEWOID=$(get_next_oid ${!DTABLE} ${BOID}.${NINDEX})
+				NEWOID=$(get_next_oid "${!DTABLE}" "${BOID}.${NINDEX}")
 				debug_echo "got new OID: ${NEWOID}"
 			else
 				NEWOID="${BOID}.${NINDEX}"
 				debug_echo "calculated new OID: ${NEWOID}"
 			fi
 			
-			echo ${NEWOID}
+			echo "${NEWOID}"
 			debug_function_return
 			return
 		fi
@@ -367,19 +367,19 @@ function get_next_oid
 	local INDEX_FUNCTION_VARIABLE
 	debug_echo "found a command"
 	INDEX_FUNCTION_VARIABLE="${TABLE}_INDEX"
-	is_defined_and_set ${INDEX_FUNCTION_VARIABLE}
+	is_defined_and_set "${INDEX_FUNCTION_VARIABLE}"
 	if (( $? == 0 )); then
 		debug_echo "found an index function: ${!INDEX_FUNCTION_VARIABLE}"
 
 		# If we have a starting index use it, otherwise get the first index
-		(( $# > 0 )) && NINDEX=$(${!INDEX_FUNCTION_VARIABLE} ${1}) || NINDEX=$(${!INDEX_FUNCTION_VARIABLE})
+		(( $# > 0 )) && NINDEX=$(${!INDEX_FUNCTION_VARIABLE} "${1}") || NINDEX=$(${!INDEX_FUNCTION_VARIABLE})
 		
 		# If we got a next index from the index function then return it.
 		if [[ -n "${NINDEX}" ]]; then
 			debug_echo "got next table index: ${NINDEX}"
 			NEWOID="${BOID}.${INDEX}.${NINDEX}"
 			debug_echo "calculated OID: ${NEWOID}"
-			echo ${NEWOID}
+			echo "${NEWOID}"
 			debug_function_return
 			return
 		fi
@@ -387,14 +387,14 @@ function get_next_oid
 		# If we got this far then the index would be out of range so we need to move on
 		# to the next table entry.
 		debug_echo "next index would be out of range"
-		NINDEX=$(get_next_array_index $TABLE $INDEX)
+		NINDEX=$(get_next_array_index "$TABLE" "$INDEX")
 		if [[ -n "${NINDEX}" ]]; then
 			DTABLE="${TABLE}[${NINDEX}]"
 			debug_echo "using next table entry: ${DTABLE}"
 			NTINDEX=$(${!INDEX_FUNCTION_VARIABLE})
 			NEWOID="${BOID}.${NINDEX}.${NTINDEX}"
 			debug_echo "calculated OID: ${NEWOID}"
-			echo ${NEWOID}
+			echo "${NEWOID}"
 		fi
 												
 		debug_function_return
@@ -406,13 +406,13 @@ function get_next_oid
 	debug_echo "no index function found"
 	
 	# Calculate the new index
-	NINDEX=$(get_next_array_index $TABLE $INDEX)
+	NINDEX=$(get_next_array_index "$TABLE" "$INDEX")
 	
 	# If we got a new index then create a new OID and return it.
 	if [[ -n "${NINDEX}" ]]; then
 		NEWOID="${BOID}.${NINDEX}"
 		debug_echo "calculated OID: ${NEWOID}"
-		echo ${NEWOID}
+		echo "${NEWOID}"
 		debug_function_return
 		return
 	fi
@@ -434,7 +434,7 @@ function get_next_oid
 #
 function handle_get
 {
-	debug_function_enter "handle_get" ${@}
+	debug_function_enter "handle_get" "${@}"
 	
 	local BOID SOID TABLE RA COMMAND
 
@@ -448,7 +448,7 @@ function handle_get
 	# error, send NONE and return.
 	if [[ "${TABLE}" != \#* ]]; then
 		error_echo "handle_get: parameter 1 is not a table!"
-		send_none ${SOID}
+		send_none "${SOID}"
 		debug_function_return 1
 		return 1
 	fi  
@@ -457,16 +457,16 @@ function handle_get
 	# log an error, send NONE and return.
 	if (( ${#RA[@]} == 0 )); then
 		debug_echo "R[equest]A[array] is empty already!"
-		send_none ${SOID}
+		send_none "${SOID}"
 		debug_function_return 1
 		return 1
 	fi
 	
 	# If the next R[equest]A[array] element is 0 then it is an index request so
 	# send the OID and NONE.
-	if (( ${RA[0]} == 0 )); then
+	if (( RA[0] == 0 )); then
 		debug_echo "RA[0] is zero, index request"
-		send_none ${SOID}
+		send_none "${SOID}"
 		debug_function_return
 		return
 	fi
@@ -481,7 +481,7 @@ function handle_get
 	# send NONE and return.
 	if [[ -z ${!TABLE+defined} ]]; then
 		debug_echo "table entry is empty!"
-		send_none ${SOID}
+		send_none "${SOID}"
 		debug_function_return 1
 		return 1
 	fi	
@@ -491,7 +491,7 @@ function handle_get
 	if [[ "${!TABLE}" == \#* ]]; then
 		# We have another table.  Simply call handle_get with the new table name,
 		# BOID and RA.
-		handle_get ${!TABLE} ${SOID} ${BOID}.${RA[0]} ${RA[@]:1}	
+		handle_get "${!TABLE}" "${SOID}" "${BOID}.${RA[0]}" "${RA[@]:1}"	
 	else
 		# We have a command.  Get it from the table, add the SOID, new BOID and
 		# remaining R[equest]A[array] and eval it.
@@ -510,15 +510,15 @@ function the_loop
 	local QUIT QUERY BASE_OID OID RARRAY
 
 	# Try to resolve the numeric base oid from the base mib.
-	BASE_OID="$(${SNMP_TRANSLATE} -On ${BASE_MIB})"
+	BASE_OID="$(${SNMP_TRANSLATE} -On "${BASE_MIB}")"
 	(( $? != 0 )) && die "Unable to resolve base OID from ${BASE_MIB}"
 	
 	# Loop until we are instructed to quit
 	QUIT=0
-	while (( ${QUIT} == 0 )); do
+	while (( QUIT == 0 )); do
 	
 		# Get the SNMP query type and convert to lower case.
-		read QUERY
+		read -r QUERY
 		QUERY=${QUERY,,}
 					
 		# What kind of request is this?
@@ -533,14 +533,14 @@ function the_loop
 			;;
 			
 			"get")				# Handle GET requests
-			get_and_split_request_oid ${BASE_OID} OID RARRAY
-			(( ${#RARRAY[@]} > 0)) && handle_get "#RTABLE" ${OID} ${BASE_OID} ${RARRAY[@]} || send_none ${OID}
+			get_and_split_request_oid "${BASE_OID}" OID RARRAY
+			(( ${#RARRAY[@]} > 0)) && handle_get "#RTABLE" "${OID}" "${BASE_OID}" "${RARRAY[@]}" || send_none "${OID}"
 			;;
 	
 			"getnext")			# Handle GETNEXT requests
-			get_and_split_request_oid ${BASE_OID} OID RARRAY
+			get_and_split_request_oid "${BASE_OID}" OID RARRAY
 			(( ${#RARRAY[@]} > 0)) && RARRAY="${RARRAY[@]}" || RARRAY="" 
-			handle_getnext "#RTABLE" ${OID} ${BASE_OID} ${RARRAY}
+			handle_getnext "#RTABLE" "${OID}" "${BASE_OID}" "${RARRAY}"
 			;;
 	
 			"set")				# Handle SET requests
@@ -548,7 +548,7 @@ function the_loop
 			;;
 	
 			*)					# Handle unknown commands
-			handle_unknown_query ${QUERY}
+			handle_unknown_query "${QUERY}"
 			;;
 		esac
 		
@@ -559,14 +559,14 @@ function the_loop
 function test_walk_oids
 {
 	LASTOID=""
-	NEXTOID=$(get_next_oid "#RTABLE" ${BASE_OID})
-	echo ${NEXTOID}
+	NEXTOID=$(get_next_oid "#RTABLE" "${BASE_OID}")
+	echo "${NEXTOID}"
 	
 	while [[ -n "${NEXTOID}" && "${NEXTOID}" != "${LASTOID}" ]]; do
 		LASTOID="${NEXTOID}"
-		split_request_oid ${BASE_OID} ${NEXTOID} RARRAY
+		split_request_oid "${BASE_OID}" "${NEXTOID}" RARRAY
 		#echo "get_next_oid #RTABLE ${BASE_OID} ${RARRAY[@]}" >&2
-		NEXTOID=$(get_next_oid "#RTABLE" ${BASE_OID} ${RARRAY[@]})
-		echo ${NEXTOID}
+		NEXTOID=$(get_next_oid "#RTABLE" "${BASE_OID}" "${RARRAY[@]}")
+		echo "${NEXTOID}"
 	done
 }
