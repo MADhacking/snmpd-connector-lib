@@ -45,17 +45,6 @@ function handle_set
 	debug_echo "Attempt to SET ${OID} to ${VALUE}"
 }
 
-# Function to get the request OID
-#
-function get_request_oid
-{
-	local TOID
-	
-	# Read the OID this request is for
-	read -r TOID
-	eval "$1"="${TOID}"
-}
-
 # Function to split the requested OID into component parts
 #
 #	@in_param	$1 - The base OID which this should be a request for
@@ -82,13 +71,11 @@ function split_request_oid
 	[[ -z "${ROID}" ]] && return 2
 
 	# Split the ROID around the dots to get the fields for this request to get a R[equest]F[ield]A[rray].
-	IFS="."
-	RFA=(${ROID})
-	unset IFS
+	IFS="." read -r -a RFA <<< "${ROID}"
 
 	# If we got some array elements then place them in $3 and indicate success
 	if (( ${#RFA[@]} > 0  )); then
-		eval "$3=(${RFA[@]})"
+		eval "$3=(${RFA[*]})"
 		return
 	fi
 	
@@ -114,7 +101,7 @@ function get_and_split_request_oid
 	
 	eval "$2=\"${TOID}\""
 	split_request_oid "$1" "${TOID}" RAY
-	[[ $? ]] && eval "$3=(${RAY[@]})" || return 2
+	[[ $? ]] && eval "$3=(${RAY[*]})" || return 2
 }
 
 # Helper function to send NONE
@@ -202,18 +189,19 @@ function handle_getnext
 	TABLE="${1}";	shift
 	SOID="${1}";	shift
 	BOID="${1}";	shift
-	RA="${@}"
+	RA="${*}"
 	
 	# If we were not passed the name of a table in $1 then we're done so log an
 	# error, send NONE and return.
 	if [[ "${TABLE}" != \#* ]]; then
 		error_echo "handle_getnext: parameter 1 is not a table!"
 		send_none
-				return 1
+		return 1
 	fi  
 
-	# Get the next OID.
-	NEXTOID=$(get_next_oid "${TABLE}" "${BOID}" "${RA}")
+	# Get the next OID - we want ${RA} to split.
+	# shellcheck disable=SC2086
+	NEXTOID=$(get_next_oid "${TABLE}" "${BOID}" ${RA})
 	[[ -n "${NEXTOID}" ]] && debug_echo "got NEXTOID = ${NEXTOID}"
 
 	# If we didn't get a next OID then log a warning and send NONE instead and
@@ -221,7 +209,7 @@ function handle_getnext
 	if [[ -z "${NEXTOID}" ]]; then
 		debug_echo "got no NEXTOID, using NONE instead"
 		send_none
-				return 1
+		return 1
 	fi
 			
 	# Handle the new request.
@@ -272,8 +260,7 @@ function get_next_oid
 		local INDEX_FUNCTION_VARIABLE
 		debug_echo "found a command"
 		INDEX_FUNCTION_VARIABLE="${TABLE}_INDEX"
-		is_defined_and_set "${INDEX_FUNCTION_VARIABLE}"
-		if (( $? == 0 )); then
+		if is_defined_and_set "${INDEX_FUNCTION_VARIABLE}"; then
 			debug_echo "found an index function: ${!INDEX_FUNCTION_VARIABLE}"
 			NINDEX=$(${!INDEX_FUNCTION_VARIABLE})
 			debug_echo "got next table index: ${NINDEX}"
@@ -353,8 +340,7 @@ function get_next_oid
 	local INDEX_FUNCTION_VARIABLE
 	debug_echo "found a command"
 	INDEX_FUNCTION_VARIABLE="${TABLE}_INDEX"
-	is_defined_and_set "${INDEX_FUNCTION_VARIABLE}"
-	if (( $? == 0 )); then
+	if is_defined_and_set "${INDEX_FUNCTION_VARIABLE}"; then
 		debug_echo "found an index function: ${!INDEX_FUNCTION_VARIABLE}"
 
 		# If we have a starting index use it, otherwise get the first index
@@ -420,7 +406,7 @@ function handle_get
 	TABLE="${1}";	shift
 	SOID="${1}";	shift
 	BOID="${1}";	shift
-	RA=(${@})
+	RA=("${@}")
 
 	# If we were not passed the name of a table in $1 then we're done so log an
 	# error, send NONE and return.
@@ -469,7 +455,7 @@ function handle_get
 	else
 		# We have a command.  Get it from the table, add the SOID, new BOID and
 		# remaining R[equest]A[array] and eval it.
-		COMMAND="${!TABLE} ${SOID} ${RA[@]:1}"
+		COMMAND="${!TABLE} ${SOID} ${RA[*]:1}"
 		debug_echo "found command in table: \"${COMMAND}\""
 		eval "${COMMAND}"
 	fi
@@ -482,8 +468,9 @@ function the_loop
 	local QUIT QUERY BASE_OID OID RARRAY
 
 	# Try to resolve the numeric base oid from the base mib.
-	BASE_OID="$(${SNMP_TRANSLATE} -On "${BASE_MIB}")"
-	(( $? != 0 )) && die "Unable to resolve base OID from ${BASE_MIB}"
+	# shellcheck disable=SC2153
+	[[ -z "${BASE_MIB}" ]] && die "You must set BASE_MIB before starting the_loop()"
+	BASE_OID="$(snmptranslate -On "${BASE_MIB}")" || die "Unable to resolve base OID from ${BASE_MIB}"
 	
 	# Loop until we are instructed to quit
 	QUIT=0
@@ -505,14 +492,18 @@ function the_loop
 			;;
 			
 			"get")				# Handle GET requests
-			get_and_split_request_oid "${BASE_OID}" OID RARRAY
-			(( ${#RARRAY[@]} > 0)) && handle_get "#RTABLE" "${OID}" "${BASE_OID}" "${RARRAY[@]}" || send_none "${OID}"
+			get_and_split_request_oid "${BASE_OID}" OID RARRAY || handle_unknown_oid "${OID}"
+			if (( ${#RARRAY[@]} > 0)); then
+			    handle_get "#RTABLE" "${OID}" "${BASE_OID}" "${RARRAY[@]}" || handle_unknown_oid "${OID}"
+			else
+			    send_none "${OID}"
+			fi
 			;;
 	
 			"getnext")			# Handle GETNEXT requests
-			get_and_split_request_oid "${BASE_OID}" OID RARRAY
-			(( ${#RARRAY[@]} > 0)) && RARRAY="${RARRAY[@]}" || RARRAY="" 
-			handle_getnext "#RTABLE" "${OID}" "${BASE_OID}" "${RARRAY}"
+			get_and_split_request_oid "${BASE_OID}" OID RARRAY || handle_unknown_oid "${OID}"
+			(( ${#RARRAY[@]} > 0)) && RARRAY="${RARRAY[*]}" || RARRAY="" 
+			handle_getnext "#RTABLE" "${OID}" "${BASE_OID}" ${RARRAY}
 			;;
 	
 			"set")				# Handle SET requests
