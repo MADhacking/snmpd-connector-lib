@@ -2,9 +2,10 @@
 [[ -n "${SNMPD_CONNECTOR_LIB_LOADED+x}" ]] && return || SNMPD_CONNECTOR_LIB_LOADED="true"
 
 # We rely on some functions from hacking-bash.sh
-[[ -r ${HACKING_BASH_LIB_PATH:=/usr/lib/hacking-bash.sh} ]] && \
-	source ${HACKING_BASH_LIB_PATH} || \
-	{ echo "Unable to find ${HACKING_BASH_LIB_PATH}"; exit 1; } 
+[[ ! -r "${HACKING_BASH_LIB_PATH:=/usr/lib/hacking-bash.sh}" ]] && \
+    echo "Unable to find ${HACKING_BASH_LIB_PATH}" && exit 1
+# shellcheck disable=SC1090
+source "${HACKING_BASH_LIB_PATH}"
 
 # Functions to handle request types
 function handle_ping
@@ -523,21 +524,5 @@ function the_loop
 			;;
 		esac
 		
-	done
-}
-
-
-function test_walk_oids
-{
-	LASTOID=""
-	NEXTOID=$(get_next_oid "#RTABLE" "${BASE_OID}")
-	echo "${NEXTOID}"
-	
-	while [[ -n "${NEXTOID}" && "${NEXTOID}" != "${LASTOID}" ]]; do
-		LASTOID="${NEXTOID}"
-		split_request_oid "${BASE_OID}" "${NEXTOID}" RARRAY
-		#echo "get_next_oid #RTABLE ${BASE_OID} ${RARRAY[@]}" >&2
-		NEXTOID=$(get_next_oid "#RTABLE" "${BASE_OID}" "${RARRAY[@]}")
-		echo "${NEXTOID}"
 	done
 }
