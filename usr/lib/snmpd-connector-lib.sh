@@ -195,8 +195,6 @@ function send_gauge
 #
 function handle_getnext
 {
-	debug_function_enter "handle_getnext" "${@}"
-
 	local TABLE SOID BOID RA NEXTOID
 
 	# Extract parameters
@@ -210,8 +208,7 @@ function handle_getnext
 	if [[ "${TABLE}" != \#* ]]; then
 		error_echo "handle_getnext: parameter 1 is not a table!"
 		send_none
-		debug_function_return 1
-		return 1
+				return 1
 	fi  
 
 	# Get the next OID.
@@ -223,16 +220,13 @@ function handle_getnext
 	if [[ -z "${NEXTOID}" ]]; then
 		debug_echo "got no NEXTOID, using NONE instead"
 		send_none
-		debug_function_return 1
-		return 1
+				return 1
 	fi
 			
 	# Handle the new request.
 	local RARRAY
 	split_request_oid "${BOID}" "${NEXTOID}" RARRAY
 	handle_get "${TABLE}" "${NEXTOID}" "${BOID}" "${RARRAY[@]}" 
-
-	debug_function_return
 }
 
 # Function to get the next OID
@@ -244,8 +238,6 @@ function handle_getnext
 #
 function get_next_oid
 {
-	debug_function_enter "get_next_oid" "${@}"
-	
 	local TABLE BOID INDEX DTABLE NEWOID NINDEX
 
 	# Extract parameters, ${@} will now contain the request elements (if any).
@@ -270,7 +262,6 @@ function get_next_oid
 			NEWOID=$(get_next_oid "${!DTABLE}" "${BOID}.${INDEX}")
 			debug_echo "got new OID: ${NEWOID}"
 			echo "${NEWOID}"
-			debug_function_return
 			return
 		fi
 		
@@ -288,7 +279,6 @@ function get_next_oid
 			NEWOID="${BOID}.${INDEX}.${NINDEX}"
 			debug_echo "calculated OID: ${NEWOID}"
 			echo "${NEWOID}"
-			debug_function_return
 			return
 		fi
 		
@@ -299,7 +289,6 @@ function get_next_oid
 		NEWOID="${BOID}.${INDEX}"
 		debug_echo "calculated OID: ${NEWOID}"
 		echo "${NEWOID}"
-		debug_function_return
 		return
 	fi
 	
@@ -327,7 +316,6 @@ function get_next_oid
 		if [[ -n "${NEWOID}" ]]; then
 			debug_echo "got new OID: ${NEWOID}"
 			echo "${NEWOID}"
-			debug_function_return
 			return
 		fi
 		
@@ -351,13 +339,10 @@ function get_next_oid
 			fi
 			
 			echo "${NEWOID}"
-			debug_function_return
 			return
 		fi
 
 		debug_echo "no next table entry after: ${TABLE}[${INDEX}]"
-																								
-		debug_function_return
 		return
 	fi
 	
@@ -380,7 +365,6 @@ function get_next_oid
 			NEWOID="${BOID}.${INDEX}.${NINDEX}"
 			debug_echo "calculated OID: ${NEWOID}"
 			echo "${NEWOID}"
-			debug_function_return
 			return
 		fi
 			
@@ -395,9 +379,7 @@ function get_next_oid
 			NEWOID="${BOID}.${NINDEX}.${NTINDEX}"
 			debug_echo "calculated OID: ${NEWOID}"
 			echo "${NEWOID}"
-		fi
-												
-		debug_function_return
+		fi												
 		return
 	fi
 	
@@ -413,14 +395,11 @@ function get_next_oid
 		NEWOID="${BOID}.${NINDEX}"
 		debug_echo "calculated OID: ${NEWOID}"
 		echo "${NEWOID}"
-		debug_function_return
 		return
 	fi
 	
 	# If we got this far then we have no next index so return nothing.
 	debug_echo "no next index found after: ${TABLE}[${INDEX}]"
-		
-	debug_function_return
 }
 
 
@@ -434,8 +413,6 @@ function get_next_oid
 #
 function handle_get
 {
-	debug_function_enter "handle_get" "${@}"
-	
 	local BOID SOID TABLE RA COMMAND
 
 	# Extract parameters
@@ -449,7 +426,6 @@ function handle_get
 	if [[ "${TABLE}" != \#* ]]; then
 		error_echo "handle_get: parameter 1 is not a table!"
 		send_none "${SOID}"
-		debug_function_return 1
 		return 1
 	fi  
 	
@@ -458,7 +434,6 @@ function handle_get
 	if (( ${#RA[@]} == 0 )); then
 		debug_echo "R[equest]A[array] is empty already!"
 		send_none "${SOID}"
-		debug_function_return 1
 		return 1
 	fi
 	
@@ -467,7 +442,6 @@ function handle_get
 	if (( RA[0] == 0 )); then
 		debug_echo "RA[0] is zero, index request"
 		send_none "${SOID}"
-		debug_function_return
 		return
 	fi
 
@@ -482,7 +456,6 @@ function handle_get
 	if [[ -z ${!TABLE+defined} ]]; then
 		debug_echo "table entry is empty!"
 		send_none "${SOID}"
-		debug_function_return 1
 		return 1
 	fi	
 
@@ -499,8 +472,6 @@ function handle_get
 		debug_echo "found command in table: \"${COMMAND}\""
 		eval "${COMMAND}"
 	fi
-	
-	debug_function_return
 }
 
 # Main functional loop
