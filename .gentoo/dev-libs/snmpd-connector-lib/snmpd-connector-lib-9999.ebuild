@@ -4,7 +4,7 @@
 EAPI=7
 
 DESCRIPTION="A library script to ease the development of SNMPD connectors in Bash"
-HOMEPAGE="https://github.com/MADhacking/snmpd-connector-lib"
+HOMEPAGE="https://github.com/GITHUB_REPOSITORY"
 LICENSE="LGPL-3"
 
 if [[ ${PV} = *9999* ]]; then
@@ -12,7 +12,7 @@ if [[ ${PV} = *9999* ]]; then
     EGIT_REPO_URI="https://github.com/GITHUB_REPOSITORY"
     EGIT_BRANCH="GITHUB_REF"
 else
-    SRC_URI="https://github.com/MADhacking/${PN}/archive/${P}.tar.gz"
+    SRC_URI="https://github.com/GITHUB_REPOSITORY/archive/${PV}.tar.gz -> ${P}.tar.gz"
 fi
 
 KEYWORDS="amd64 x86"
