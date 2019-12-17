@@ -23,7 +23,7 @@ RESTRICT="!test? ( test )"
 
 RDEPEND="dev-libs/hacking-bash-lib
     net-analyzer/net-snmp"
-DEPEND="test? ( 
+DEPEND="test? (
     dev-libs/hacking-bash-lib
     dev-util/bats-assert
 )"
